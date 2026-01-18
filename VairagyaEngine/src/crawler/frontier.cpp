@@ -1,12 +1,16 @@
-#include "crawler/frontier.h"
+﻿#include "crawler/frontier.h"
 #include "url/process.h"
 
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
 #include <string>
+#include<time.h>
+
+using namespace std;
 
 namespace crawler {
+
 	// internal state for each host
 	struct HostState {
 		queue<FrontierItem> urlQueue;
@@ -27,35 +31,54 @@ namespace crawler {
 		return url.substr(pos, end - pos);
 	}
 
-	void Frontier::push(const string& inputURL) {
-		
-		// 1. Process URL (vaidate + normalize)
+	void Frontier::push(const std::string& inputURL) {
+
+		// 1. Validate + normalize
 		ProcessedURL pURL = processURL(inputURL);
-		
-		// 2. Check URL status
 		if (pURL.status != URLStatus::ACCEPTED) {
 			return;
 		}
 
-		// 3. Deduplicate
-		size_t urlHash = hashURL(pURL.normalized);
-		if (visitedURLs.find(urlHash) != visitedURLs.end()) {
-			return; 
+		const std::string& url = pURL.normalized;
+
+		// 2. Get or create URL state
+		auto& state = urlStates[url];
+
+		// First time seeing this URL
+		if (state.normalized_url.empty()) {
+			state.normalized_url = url;
+			state.retry_count = 0;
+			state.fetch_status = net::FetchStatus::UNKNOWN_ERROR; // initial placeholder
+			state.http_status = 0;
+			state.last_fetch_ts = 0;
+			state.content_hash.clear();
 		}
 
-		// 4. Extract Host
-		string host = extractHost(pURL.normalized);
+		// 3. Terminal success → never enqueue again
+		if (state.fetch_status == net::FetchStatus::SUCCESS) {
+			return;
+		}
+
+		// 4. Retry limit reached → drop
+		if (state.retry_count >= MAX_RETRY_COUNT) {
+			return;
+		}
+
+		// 5. Extract host
+		std::string host = extractHost(url);
 		if (host.empty()) {
 			return;
 		}
 
-		// 5. Enqueue
-		//FrontierItem item{url, priority, retry_count};
-		hostQueue[host].urlQueue.push({ pURL.normalized, 0, 0 });
-
-		// 6. Mark as visited
-		visitedURLs.insert(urlHash);
+		// 6. Enqueue
+		hostQueue[host].urlQueue.push({
+			url,
+			pURL.priority,
+			state.retry_count
+			});
 	}
+
+
 
 	optional<FrontierItem> Frontier::pop() {
 		for (auto& [host, state] : hostQueue) {
@@ -96,11 +119,46 @@ namespace crawler {
 	*/
 
 	void Frontier::pushRetry(const FrontierItem& item) {
-		string host = extractHost(item.url);
+		string host = extractHost(item.normalized_url);
 		if (host.empty()) {
 			return;
 		}
 
 		hostQueue[host].urlQueue.push(item);
+	}
+
+	void Frontier::markFetched(const string& url, uint16_t http_code) {
+		auto& state = urlStates[url];
+
+		state.fetch_status = net::FetchStatus::SUCCESS;
+		state.http_status = http_code;
+		state.retry_count = 0;
+		state.last_fetch_ts = time(nullptr);
+	}
+
+
+
+	void Frontier::markFailed(const string& url, uint16_t http_code) {
+		auto& state = urlStates[url];
+
+		state.fetch_status = net::FetchStatus::FAILED;
+		state.http_status = http_code;
+		state.last_fetch_ts = time(nullptr);
+	}
+
+
+
+	void Frontier::markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code)
+	{
+		auto& state = urlStates[url];
+
+		state.fetch_status = fetch_status;
+		state.http_status = http_code;
+		state.retry_count++;
+		state.last_fetch_ts = time(nullptr);
+
+		if (state.retry_count < MAX_RETRY_COUNT) {
+			push(url);
+		}
 	}
 }

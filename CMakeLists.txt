@@ -19,7 +19,18 @@ add_executable(VairagyaEngine
     "VairagyaEngine/src/net/resolver.cpp"
     "VairagyaEngine/src/host/rate_limit.cpp"
     "VairagyaEngine/src/host/robots.cpp"
+    "VairagyaEngine/src/storage/rocksdb_store.cpp" 
+    "VairagyaEngine/src/storage/url_state.cpp" 
+    "VairagyaEngine/src/storage/host_state.cpp" 
+    "VairagyaEngine/src/storage/content_state.cpp"
+    "VairagyaEngine/src/storage/memory_url_state_store.cpp"
+    "VairagyaEngine/src/storage/memory_content_state_store.cpp"
+    "VairagyaEngine/src/storage/memory_host_state_store.cpp"
+    "VairagyaEngine/src/host/robots_manager.cpp"
+    "VairagyaEngine/src/net/response_classifier.cpp"
+    "VairagyaEngine/src/html/html_parser.cpp"
 )
+
 target_link_libraries(VairagyaEngine PRIVATE Boost::boost)
 set_target_properties(VairagyaEngine PROPERTIES
     CXX_STANDARD 20

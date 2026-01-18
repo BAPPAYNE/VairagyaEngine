@@ -1,0 +1,20 @@
+#ifndef URL_STATE_H
+#define URL_STATE_H
+
+#include "net/fetcher.h"
+
+#include <string>
+#include <cstdint>
+
+namespace storage {
+    struct URLState {
+        std::string normalized_url;   // PK
+        net::FetchStatus fetch_status;
+        uint16_t http_status;
+        uint8_t retry_count;
+        uint64_t last_fetch_ts;
+        std::string content_hash;
+    };
+};
+
+#endif // URL_STATE_H

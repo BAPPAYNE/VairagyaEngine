@@ -9,17 +9,32 @@
 #include "url/process.h"
 #include "crawler/engine.h"
 #include "utils/log.h"
+#include "net/fetcher.h"
 
 using namespace std; 
 
-std::ostream& operator<<(std::ostream& os, URLStatus s) {
-    switch (s) {
-    case URLStatus::INVALID:    return os << "INVALID";
-    case URLStatus::RELATIVE:   return os << "RELATIVE";
-    case URLStatus::DISALLOWED: return os << "DISALLOWED";
-    case URLStatus::ACCEPTED:   return os << "ACCEPTED";
+inline const char* enum_to_string(net::FetchStatus status) {
+    switch (status) {
+        case net::FetchStatus::SUCCESS: return "SUCCESS";
+        case net::FetchStatus::FAILED: return "FAILED";
+        case net::FetchStatus::TIMEOUT: return "TIMEOUT";
+        case net::FetchStatus::NOT_FOUND: return "NOT_FOUND";
+        case net::FetchStatus::UNAUTHORIZED: return "UNAUTHORIZED";
+        case net::FetchStatus::FORBIDDEN: return "FORBIDDEN";
+        case net::FetchStatus::SERVER_ERROR: return "SERVER_ERROR";
+        case net::FetchStatus::UNKNOWN_ERROR: return "UNKNOWN_ERROR";
+        default: return "INVALID_STATUS";
     }
-    return os << "UNKNOWN";
+}
+
+inline const char *enum_to_string(URLStatus status) {
+    switch (status) {
+        case URLStatus::INVALID: return "INVALID";
+        case URLStatus::RELATIVE: return "RELATIVE";
+        case URLStatus::DISALLOWED: return "DISALLOWED";
+        case URLStatus::ACCEPTED: return "ACCEPTED";
+        default: return "INVALID_STATUS";
+    }
 }
 
 int main()
@@ -27,33 +42,17 @@ int main()
     // Call the function with its namespace
  //   cout << *(normalizeURI("HTTP://www.Example.com:80/a%c2%b1b/%7Eusername/?q=Test%20Query#Fragment")) << std::endl;
 
-    string urls[] = {
-  //      "HTTPS://WWW.Google.COM",
-  //      "https://google.com:443/search?q=AI",
-  //      "https://www.youtube.com//watch?v=dQw4w9WgXcQ",
-  //      "https://twitter.com/./home",
-  //      "https://github.com/BAPPAYNE/Friday/../Friday",
-  //      "https://api.openai.com/v1/%41ssistants",
-  //      "https://example.com/a/b/../../c/",
-  //      "https://cdn.cloudflare.com/assets/%7Eicons/logo.svg",
-  //      "https://login.microsoftonline.com//common/oauth2/v2.0/authorize",
-  //      "https://aws.amazon.com:443/ec2/?region=us-east-1&service=ec2",
-  //      "https://medium.com/@user//latest",
-  //      "https://www.reddit.com/r/netsec/./comments/",
-  //      "https://example.com/%2Fadmin%2Fpanel",
-  //      "https://example.com?b=2&a=1",
-  //      "https://example.com/%63%61%73%65",
-  //      "https://example.com/page#section",
-  //      "https://example.com/a/b/c/d/e/f/g/h/i/j/k",
-		//"https://example.com/image.png",
-  //      "ftp://example.com/resource",
-  //      "http://incomplete-url",
-		"https://example.com/this|that"
-        ""
-    };
+    //string urls[] = {
+        //"https://www.google.com",
+        //"https://duckduckgo.com",
+        //"https://stackoverflow.com",
+        //"https://chatgpt.com"
+        //"https://bhagavadgita.com/api"
+ //       "http://httpforever.com/"
+ //   };
 
-    size_t n = _countof(urls);
-	cout << "Total URLs: " << n << endl;
+ //   size_t n = _countof(urls);
+	//cout << "Total URLs: " << n << endl;
  //   ProcessedURL pURL;
  //   for (int i = 0; i < n; i++) {
  //       string normalizedURI = normalizeURI(urls[i]).value_or("");
@@ -73,18 +72,26 @@ int main()
 
     // cout << processURL("https://www.example.com").normalized << endl;
 	//cout << priorityScore("https://www.example.com") << endl;
-	ProcessedURL pURL;
-    for (int i = 0; i < n; i++) {
-    	pURL = processURL(urls[i]);
-		cout << "----------------------------------------" << endl;
-        cout << pURL.original << endl ;
-		cout << pURL.normalized << endl;
-		cout << pURL.priority << endl;
-		cout << pURL.status << endl;
-    }
+	//ProcessedURL pURL;
+ //   for (int i = 0; i < n; i++) {
+ //   	pURL = processURL(urls[i]);
+	//	cout << "----------------------------------------" << endl;
+ //       cout << pURL.original << endl ;
+	//	cout << pURL.normalized << endl;
+	//	cout << pURL.priority << endl;
+	//	cout << enum_to_string(pURL.status) << endl;
+ //   }
+	//net::FetchResult fetchedResult;
+ //   for (int i = 0; i < n; i++) {
+ //       fetchedResult = net::fetch(urls[i]);
+ //       cout << "----------------------------------------" << endl;
+ //       cout << fetchedResult.content << endl;
+ //       cout << fetchedResult.http_code << endl;
+ //       cout << enum_to_string(fetchedResult.status) << endl;
+ //   }
 
-    
-    
+
+    crawler::runCrawler();
 
     return 0;
 }
