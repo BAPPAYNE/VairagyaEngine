@@ -1,10 +1,12 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 
-#include <string>
-#include <cctype>
 #include "url/status.h"
 #include "url/validate.h"
+
+#include <string>
+#include <cctype>
+#include <optional>
 
 using namespace std;
 
@@ -26,5 +28,7 @@ struct ProcessedURL {
 ProcessedURL processURL(const string& url);
 
 int priorityScore(const string& url);
+
+std::optional<string> resolveRelativeURL(const string& url, const string& base_url);
 
 #endif // PROCESS_H

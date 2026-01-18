@@ -2,6 +2,7 @@
 #define FETCHER_H
 
 #include <string>
+#include <cctype>
 
 namespace net {
 	enum class FetchStatus {
@@ -18,10 +19,10 @@ namespace net {
 	struct FetchResult {
 		FetchStatus status;
 		std::string content;
-		int http_code;
+		uint16_t http_code;
 	};
 
 	FetchResult fetch(const std::string& url, int timeout_ms = 5000);
 }
 
-#endif // !FETCHER_H
+#endif // FETCHER_H

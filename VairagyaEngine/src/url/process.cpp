@@ -2,8 +2,10 @@
 #include "url/validate.h"
 #include "url/normalize.h"
 
+#include <boost/url.hpp>
 
 using namespace std;
+using namespace boost::urls;
 
 constexpr int MAX_PRIORITY = 100;
 
@@ -54,4 +56,51 @@ ProcessedURL processURL(const string& input) {
 	}
 	out.priority = priorityScore(out.normalized);
 	return out;
+}
+
+std::optional<string> resolveRelativeURL(const string& raw, const string& base_url) {
+
+	// Reject empty
+	if (raw.empty()) {
+		return nullopt;
+	}
+
+	// Reject fragments-only
+	if (raw[0] == '#') {
+		return nullopt;
+	}
+
+	// Reject non-http(s) schemes early
+	if (raw.starts_with("mailto:") ||
+		raw.starts_with("javascript:") ||
+		raw.starts_with("tel:")) {
+		return nullopt;
+	}
+
+	// Parse base URL
+	auto base = parse_uri(base_url);
+	if (!base) {
+		return nullopt;
+	}
+
+	// Parse reference
+	auto ref = parse_uri_reference(raw);
+	if (!ref) {
+		return std::nullopt;
+	}
+
+	// Resolve (this handles absolute AND relative)
+	url resolved = *base;
+	resolved.resolve(*ref);
+
+	// Only allow http / https
+	if (resolved.scheme() != "http" &&
+		resolved.scheme() != "https") {
+		return std::nullopt;
+	}
+
+	// Strip fragment
+	resolved.remove_fragment();
+
+	return resolved.buffer();
 }

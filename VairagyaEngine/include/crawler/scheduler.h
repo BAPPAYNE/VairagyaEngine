@@ -1,19 +1,21 @@
-#ifndef SCHENDULER_H
-#define SCHENDULER_H
+#ifndef SCHEDULER_H
+#define SCHEDULER_H
 
 #include <optional>
+#include <string>
+
 #include "crawler/frontier.h"
 
-namespace Crawler {
+namespace crawler {
 	class Scheduler {
 	public:
 		explicit Scheduler(Frontier& frontier);
-		optional<string> getNextURL();
+		optional<FrontierItem> getNextURL();
 
 	private:
 		Frontier& frontier_;
 	};
-}
+};
 
 
-#endif // SCHENDULER_H
+#endif // SCHEDULER_H
