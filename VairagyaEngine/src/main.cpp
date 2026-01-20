@@ -3,6 +3,12 @@
 
 #include <string>
 #include <iostream>
+#include <atomic>
+#include <csignal>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include "url/normalize.h"
 #include "url/validate.h"
@@ -11,7 +17,30 @@
 #include "utils/log.h"
 #include "net/fetcher.h"
 
-using namespace std; 
+#include "utils/runtime.h"
+
+using namespace std;
+atomic<bool> g_running{ true };
+
+#ifdef _WIN32
+#include <windows.h>
+
+
+BOOL WINAPI consoleHandler(DWORD signal) {
+    if (signal == CTRL_C_EVENT) {
+        cout << "\n[SHUTDOWN] Ctrl+C received\n";
+        g_running = false;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+#endif
+
+void handle_sigint(int) {
+    cout << "\n[SHUTDOWN] SIGINT received\n";
+    g_running = false;
+}
 
 inline const char* enum_to_string(net::FetchStatus status) {
     switch (status) {
@@ -29,69 +58,22 @@ inline const char* enum_to_string(net::FetchStatus status) {
 
 inline const char *enum_to_string(URLStatus status) {
     switch (status) {
-        case URLStatus::INVALID: return "INVALID";
-        case URLStatus::RELATIVE: return "RELATIVE";
-        case URLStatus::DISALLOWED: return "DISALLOWED";
-        case URLStatus::ACCEPTED: return "ACCEPTED";
+        case URLStatus::INVALID_URL: return "INVALID";
+        case URLStatus::RELATIVE_URL: return "RELATIVE";
+        case URLStatus::DISALLOWED_URL: return "DISALLOWED";
+        case URLStatus::ACCEPTED_URL: return "ACCEPTED";
         default: return "INVALID_STATUS";
     }
 }
 
 int main()
 {
-    // Call the function with its namespace
- //   cout << *(normalizeURI("HTTP://www.Example.com:80/a%c2%b1b/%7Eusername/?q=Test%20Query#Fragment")) << std::endl;
-
-    //string urls[] = {
-        //"https://www.google.com",
-        //"https://duckduckgo.com",
-        //"https://stackoverflow.com",
-        //"https://chatgpt.com"
-        //"https://bhagavadgita.com/api"
- //       "http://httpforever.com/"
- //   };
-
- //   size_t n = _countof(urls);
-	//cout << "Total URLs: " << n << endl;
- //   ProcessedURL pURL;
- //   for (int i = 0; i < n; i++) {
- //       string normalizedURI = normalizeURI(urls[i]).value_or("");
- //       if (normalizedURI.empty()) {
- //           std::cout << "Invalid URL\n";
- //           //continue;
- //       }
-	//	pURL =  processURL(urls[i]);
- //       cout << "URI: " << normalizedURI; 
- //       cout << "\tValidity: " << analyzeURL(normalizedURI);
-	//	cout << "\tPriority: " << priorityScore(pURL.normalized) << endl;
- //   }
-
-    // crawler::runCrawler();
-
-	//debug("Priority : %d", priorityScore("https://example.com/a/b/c/d/e/f/g/h/i/j/k\n"));
-
-    // cout << processURL("https://www.example.com").normalized << endl;
-	//cout << priorityScore("https://www.example.com") << endl;
-	//ProcessedURL pURL;
- //   for (int i = 0; i < n; i++) {
- //   	pURL = processURL(urls[i]);
-	//	cout << "----------------------------------------" << endl;
- //       cout << pURL.original << endl ;
-	//	cout << pURL.normalized << endl;
-	//	cout << pURL.priority << endl;
-	//	cout << enum_to_string(pURL.status) << endl;
- //   }
-	//net::FetchResult fetchedResult;
- //   for (int i = 0; i < n; i++) {
- //       fetchedResult = net::fetch(urls[i]);
- //       cout << "----------------------------------------" << endl;
- //       cout << fetchedResult.content << endl;
- //       cout << fetchedResult.http_code << endl;
- //       cout << enum_to_string(fetchedResult.status) << endl;
- //   }
-
-
+#ifdef _WIN32
+    SetConsoleCtrlHandler(consoleHandler, TRUE);
+#endif
+    signal(SIGINT, handle_sigint);
     crawler::runCrawler();
-
+    cout << "[EXIT] Crawler stopped cleanly\n";
+    
     return 0;
 }

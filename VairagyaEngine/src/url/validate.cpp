@@ -14,17 +14,17 @@ URLStatus analyzeURL(string urlInput, string* normalized) {
 
     auto parsedURL = parse_uri_reference(urlInput);
     if (!parsedURL) {
-        return URLStatus::INVALID;
+        return URLStatus::INVALID_URL;
     }
 
     const auto& uri = parsedURL.value();
 
     if (!uri.has_scheme() || !uri.has_authority()) {
-        return URLStatus::RELATIVE;
+        return URLStatus::RELATIVE_URL;
     }
 
     if (uri.scheme() != "http" && uri.scheme() != "https") {
-        return URLStatus::DISALLOWED;
+        return URLStatus::DISALLOWED_URL;
     }
 
     if (normalized) {
@@ -39,7 +39,7 @@ URLStatus analyzeURL(string urlInput, string* normalized) {
         *normalized = string(u.buffer());
     }
 
-    return URLStatus::ACCEPTED;
+    return URLStatus::ACCEPTED_URL;
 }
 
 SchemeType extractScheme(const string& url) {
