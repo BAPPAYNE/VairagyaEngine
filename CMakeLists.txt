@@ -2,36 +2,34 @@
 
 project(VairagyaEngine LANGUAGES CXX)
 
-find_package(Boost)
-
-
+find_package(Boost REQUIRED COMPONENTS url)
+find_package(OpenSSL REQUIRED)
 
 add_executable(VairagyaEngine
-    ${PROJECT_SOURCE_DIR}/VairagyaEngine/src/main.cpp
-    "VairagyaEngine/src/url/normalize.cpp"
-    "VairagyaEngine/src/url/validate.cpp"
-    "VairagyaEngine/src/url/process.cpp"
-    "VairagyaEngine/src/url/parse.cpp"
-    "VairagyaEngine/src/crawler/frontier.cpp"
-    "VairagyaEngine/src/crawler/scheduler.cpp" 
-    "VairagyaEngine/src/crawler/engine.cpp"
-    "VairagyaEngine/src/net/fetcher.cpp"
-    "VairagyaEngine/src/net/resolver.cpp"
-    "VairagyaEngine/src/host/rate_limit.cpp"
-    "VairagyaEngine/src/host/robots.cpp"
-    "VairagyaEngine/src/storage/rocksdb_store.cpp" 
-    "VairagyaEngine/src/storage/url_state.cpp" 
-    "VairagyaEngine/src/storage/host_state.cpp" 
-    "VairagyaEngine/src/storage/content_state.cpp"
-    "VairagyaEngine/src/storage/memory_url_state_store.cpp"
-    "VairagyaEngine/src/storage/memory_content_state_store.cpp"
-    "VairagyaEngine/src/storage/memory_host_state_store.cpp"
-    "VairagyaEngine/src/host/robots_manager.cpp"
-    "VairagyaEngine/src/net/response_classifier.cpp"
-    "VairagyaEngine/src/html/html_parser.cpp"
-)
+    VairagyaEngine/src/main.cpp
+    VairagyaEngine/src/url/normalize.cpp
+    VairagyaEngine/src/url/validate.cpp
+    VairagyaEngine/src/url/process.cpp
+    VairagyaEngine/src/url/parse.cpp
+    VairagyaEngine/src/crawler/frontier.cpp
+    VairagyaEngine/src/crawler/scheduler.cpp
+    VairagyaEngine/src/crawler/engine.cpp
+    VairagyaEngine/src/net/fetcher.cpp
+    VairagyaEngine/src/net/resolver.cpp
+    VairagyaEngine/src/net/response_classifier.cpp
+    VairagyaEngine/src/html/html_parser.cpp
+    VairagyaEngine/src/host/rate_limit.cpp
+    VairagyaEngine/src/host/robots.cpp
+    VairagyaEngine/src/host/robots_manager.cpp
+    VairagyaEngine/src/storage/rocksdb_store.cpp
+    VairagyaEngine/src/storage/url_state.cpp
+    VairagyaEngine/src/storage/host_state.cpp
+    VairagyaEngine/src/storage/content_state.cpp
+    VairagyaEngine/src/storage/memory_url_state_store.cpp
+    VairagyaEngine/src/storage/memory_content_state_store.cpp
+    VairagyaEngine/src/storage/memory_host_state_store.cpp
+  "VairagyaEngine/include/utils/runtime.h")
 
-target_link_libraries(VairagyaEngine PRIVATE Boost::boost)
 set_target_properties(VairagyaEngine PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES
@@ -41,18 +39,12 @@ set_target_properties(VairagyaEngine PROPERTIES
 target_include_directories(VairagyaEngine
     PRIVATE
         ${PROJECT_SOURCE_DIR}/VairagyaEngine/include
-        $ENV{VCPKG_INCLUDE}
 )
-
-find_package(Boost REQUIRED COMPONENTS url)
 
 target_link_libraries(VairagyaEngine
     PRIVATE
         Boost::url
+        Boost::boost
+        OpenSSL::SSL
+        OpenSSL::Crypto
 )
-
-if(DEFINED ENV{VCPKG_INCLUDE})
-    target_include_directories(VairagyaEngine PRIVATE $ENV{VCPKG_INCLUDE})
-else()
-    message(FATAL_ERROR "VCPKG_INCLUDE is not set")
-endif()

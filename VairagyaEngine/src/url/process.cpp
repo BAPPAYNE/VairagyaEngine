@@ -3,6 +3,7 @@
 #include "url/normalize.h"
 
 #include <boost/url.hpp>
+#include<iostream>
 
 using namespace std;
 using namespace boost::urls;
@@ -40,7 +41,7 @@ ProcessedURL processURL(const string& input) {
 
 	auto normalized = normalizeURI(input);
 	if (!normalized) {
-		out.status = URLStatus::INVALID; 
+		out.status = URLStatus::INVALID_URL; 
 		out.priority = 0;
 		return out;
 	}
@@ -51,6 +52,7 @@ ProcessedURL processURL(const string& input) {
 	out.crawlability = assessCrawlability(out.scheme);
 
 	if (out.crawlability == Crawlability::NON_CRAWLABLE) {
+		std::cout << "[NON-CRAWLABLE] " << out.normalized << "\n";
 		out.priority = 0;
 		return out;
 	}

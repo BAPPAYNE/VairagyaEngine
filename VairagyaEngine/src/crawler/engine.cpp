@@ -6,6 +6,7 @@
 #include "storage/host_state_store.h"
 #include "net/response_classifier.h"
 #include "html/html_parser.h"
+#include "utils/runtime.h"
 
 #include <iostream>
 
@@ -69,7 +70,7 @@ namespace crawler {
 				if (!resolved) continue;
 
 				auto processed = processURL(*resolved);
-				if (processed.status == URLStatus::ACCEPTED) {
+				if (processed.status == URLStatus::ACCEPTED_URL) {
 					addURL(processed.normalized);
 				}
 			}
@@ -152,12 +153,12 @@ void crawler::runCrawler() {
 	Engine engine;
 
 	// Seed
-	auto seed = processURL("http://httpforever.com");
-	if (seed.status == URLStatus::ACCEPTED) {
+	auto seed = processURL("https://www.google.com");
+	if (seed.status == URLStatus::ACCEPTED_URL) {
 		engine.addURL(seed.normalized);
 	}
 
-	while (engine.shouldContinue()) {
+	while (g_running && engine.shouldContinue()) {
 		engine.processNextURL();
 	}
 

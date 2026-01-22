@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <queue>
 #include <string>
+#include <iostream>
 #include<time.h>
 
 using namespace std;
@@ -35,7 +36,8 @@ namespace crawler {
 
 		// 1. Validate + normalize
 		ProcessedURL pURL = processURL(inputURL);
-		if (pURL.status != URLStatus::ACCEPTED) {
+		if (pURL.status != URLStatus::ACCEPTED_URL) {
+			cout << "[DROP] " << inputURL << " status=" << (int)pURL.status << "\n";
 			return;
 		}
 
