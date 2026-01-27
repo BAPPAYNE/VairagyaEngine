@@ -31,6 +31,7 @@ namespace crawler {
 		void markFetched(const string& url, uint16_t http_code);
 		void markDisallowed(const string& url);
 
+
 	private:
 		Frontier frontier; // Manages URLs to be crawled
 		Scheduler scheduler; // Manages URL scheduling
