@@ -25,6 +25,14 @@ namespace crawler {
 		RETRYING
 	};
 
+	struct CrawlStats {
+		uint64_t fetched = 0;
+		uint64_t failed = 0;
+		uint64_t retried = 0;
+		uint64_t disallowed = 0;
+		uint64_t discovered = 0;
+	};
+
 	struct FrontierItem {
 		string normalized_url;
 		int priority;
@@ -42,6 +50,8 @@ namespace crawler {
 		optional<FrontierItem> pop();
 		bool empty() const;
 		void pushRetry(const FrontierItem& url);
+
+		CrawlStats crawl_stats;
 
 	private:
 		struct HostState {
