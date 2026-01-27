@@ -40,7 +40,7 @@ namespace crawler {
 			cout << "[DROP] " << inputURL << " status=" << (int)pURL.status << "\n";
 			return;
 		}
-
+		crawl_stats.discovered++;
 		const std::string& url = pURL.normalized;
 
 		// 2. Get or create URL state
@@ -136,6 +136,7 @@ namespace crawler {
 		state.http_status = http_code;
 		state.retry_count = 0;
 		state.last_fetch_ts = time(nullptr);
+		crawl_stats.fetched++;
 	}
 
 
@@ -146,6 +147,7 @@ namespace crawler {
 		state.fetch_status = net::FetchStatus::FAILED;
 		state.http_status = http_code;
 		state.last_fetch_ts = time(nullptr);
+		crawl_stats.failed++;
 	}
 
 
@@ -158,20 +160,20 @@ namespace crawler {
 		state.http_status = http_code;
 		state.retry_count++;
 		state.last_fetch_ts = time(nullptr);
-
 		if (state.retry_count < MAX_RETRY_COUNT) {
+			crawl_stats.retried++;
 			push(url);
 		}
 	}
 	 
 	void Frontier::markDisallowed(const string& url) {
 		auto& state = urlStates[url];
-
 		state.normalized_url = url;
 		state.fetch_status = net::FetchStatus::ROBOTS_DISALLOWED;
 		state.retry_count = 0;
 		state.http_status = 0;
 		state.last_fetch_ts = time(nullptr);
+		crawl_stats.disallowed++;
 	}
 	
 }
