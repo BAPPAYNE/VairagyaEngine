@@ -7,6 +7,7 @@
 #include "net/response_classifier.h"
 #include "html/html_parser.h"
 #include "utils/runtime.h"
+#include "host/robots_manager.h"
 
 #include <iostream>
 
@@ -16,6 +17,8 @@ namespace crawler {
 	Engine::Engine()
 		: frontier()
 		, scheduler(frontier)
+		, hostStore()
+		, robotsManager(hostStore)
 		, running(true)
 	{
 	}
@@ -42,6 +45,11 @@ namespace crawler {
 		}
 
 		const FrontierItem& item = *itemOpt;
+
+		if (!robotsManager.canFetch(item.normalized_url)) {
+			markDisallowed(item.normalized_url);
+			return;
+		}
 
 		// 2. Fetch
 		auto result = net::fetch(item.normalized_url);
@@ -139,13 +147,14 @@ namespace crawler {
 		frontier.markFailed(url, http_status);
 	}
 
-	void Engine::markRetry(const string& url,
-		net::FetchStatus status,
-		uint16_t http_status)
+	void Engine::markRetry(const string& url, net::FetchStatus status, uint16_t http_status)
 	{
 		frontier.markRetry(url, status, http_status);
 	}
 
+	void Engine::markDisallowed(const string &url) {
+		frontier.markDisallowed(url);
+	}
 
 };
 

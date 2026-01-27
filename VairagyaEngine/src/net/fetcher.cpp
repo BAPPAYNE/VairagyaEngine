@@ -58,9 +58,7 @@ namespace net {
 			beast::flat_buffer buffer;
 			http::response<http::string_body> res;
 
-			// =========================
 			// HTTP
-			// =========================
 			if (!is_https) {
 				beast::tcp_stream stream(ioc);
 				stream.connect(results);
@@ -71,9 +69,8 @@ namespace net {
 				beast::error_code ec;
 				stream.socket().shutdown(tcp::socket::shutdown_both, ec);
 			}
-			// =========================
+		
 		// HTTPS
-		// =========================
 			else {
 				ssl::context ctx{ ssl::context::tlsv12_client };
 				ctx.set_default_verify_paths();

@@ -37,6 +37,7 @@ namespace crawler {
 		void markFetched(const string& url, uint16_t http_status);
 		void markFailed(const string& url, uint16_t http_status);
 		void markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_status);
+		void markDisallowed(const string& url);
 		void push(const string& url);
 		optional<FrontierItem> pop();
 		bool empty() const;
