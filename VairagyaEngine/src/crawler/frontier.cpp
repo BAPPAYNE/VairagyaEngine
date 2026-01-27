@@ -6,7 +6,7 @@
 #include <queue>
 #include <string>
 #include <iostream>
-#include<time.h>
+#include <ctime>
 
 using namespace std;
 
@@ -163,4 +163,15 @@ namespace crawler {
 			push(url);
 		}
 	}
+	 
+	void Frontier::markDisallowed(const string& url) {
+		auto& state = urlStates[url];
+
+		state.normalized_url = url;
+		state.fetch_status = net::FetchStatus::ROBOTS_DISALLOWED;
+		state.retry_count = 0;
+		state.http_status = 0;
+		state.last_fetch_ts = time(nullptr);
+	}
+	
 }
