@@ -7,6 +7,8 @@
 #include "crawler/frontier.h"
 #include "url/process.h"
 #include "crawler/scheduler.h"
+#include "host/robots_manager.h"
+#include "storage/memory_host_state_store.h"
 
 namespace crawler {
 
@@ -27,10 +29,13 @@ namespace crawler {
 		void markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code);
 		void markFailed(const string& url, uint16_t http_code);
 		void markFetched(const string& url, uint16_t http_code);
+		void markDisallowed(const string& url);
 
 	private:
 		Frontier frontier; // Manages URLs to be crawled
 		Scheduler scheduler; // Manages URL scheduling
+		storage::MemoryHostStateStore hostStore;
+		RobotsManager robotsManager;
 		bool running; // Indicates if the engine is active
 	};
 
