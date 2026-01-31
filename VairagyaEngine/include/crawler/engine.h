@@ -31,6 +31,7 @@ namespace crawler {
 		void markFetched(const string& url, uint16_t http_code);
 		void markDisallowed(const string& url);
 
+		std::vector<std::string> get200URLs() const;
 
 	private:
 		Frontier frontier; // Manages URLs to be crawled
@@ -41,7 +42,7 @@ namespace crawler {
 		bool extract_links_;
 	};
 
-	void runCrawler(const std::vector<std::string>& initialURLs, bool extract_links = false);
+	void runCrawler(const std::vector<std::string>& initialURLs);
 };
 
 #endif // ENGINE_H

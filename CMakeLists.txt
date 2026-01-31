@@ -4,6 +4,7 @@ project(VairagyaEngine LANGUAGES CXX)
 
 find_package(Boost REQUIRED COMPONENTS url)
 find_package(OpenSSL REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 add_executable(VairagyaEngine
     VairagyaEngine/src/main.cpp
@@ -28,7 +29,9 @@ add_executable(VairagyaEngine
     VairagyaEngine/src/storage/memory_content_state_store.cpp
     VairagyaEngine/src/storage/memory_host_state_store.cpp
     VairagyaEngine/src/utils/utils.cpp
-)
+    VairagyaEngine/src/utils/log.cpp
+    VairagyaEngine/src/utils/config.cpp
+    "VairagyaEngine/include/utils/config.h")
 
 set_target_properties(VairagyaEngine PROPERTIES
     CXX_STANDARD 20
@@ -47,4 +50,5 @@ target_link_libraries(VairagyaEngine
         Boost::boost
         OpenSSL::SSL
         OpenSSL::Crypto
+        nlohmann_json::nlohmann_json
 )

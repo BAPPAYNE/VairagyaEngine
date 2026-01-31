@@ -175,5 +175,16 @@ namespace crawler {
 		state.last_fetch_ts = time(nullptr);
 		crawl_stats.disallowed++;
 	}
+
+	vector<string> Frontier::getSuccessfulURLs() const {
+		vector<string> successURLs;
+		for (const auto& kv : urlStates) {
+			const auto& state = kv.second;
+			if (state.http_status == 200) {
+				successURLs.push_back(state.normalized_url);
+			}
+		}
+		return successURLs;
+	}
 	
 }

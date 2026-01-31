@@ -1,4 +1,7 @@
 ﻿#include "crawler/engine.h"
+#include "crawler/engine.h"
+#include "utils/log.h"
+#include "utils/config.h"
 #include "net/fetcher.h"
 #include "crawler/scheduler.h"
 #include "storage/url_state_store.h"
@@ -103,6 +106,10 @@ namespace crawler {
 		case net::ResponseClass::OK: {
 			// Mark success
 			markFetched(item.normalized_url, result.http_code);
+			
+			if (result.http_code == 200) {
+				log_utils::log_url(item.normalized_url);
+			}
 
 			// Extract raw links
 			if (extract_links_) {
@@ -196,10 +203,16 @@ namespace crawler {
 		frontier.markDisallowed(url);
 	}
 
+	vector<string> Engine::get200URLs() const {
+		return frontier.getSuccessfulURLs();
+	}
+
 };
 
-void crawler::runCrawler(const vector<string>& initialURLs, bool extract_links) {
-	Engine engine(extract_links);
+void crawler::runCrawler(const vector<string>& initialURLs) {
+	Engine engine(crawl_links);
+
+	log_utils::init_output_streams(json_output_path, txt_output_path);
 
 	// Seed
 	int size_initialURLS = initialURLs.size();
@@ -215,4 +228,5 @@ void crawler::runCrawler(const vector<string>& initialURLs, bool extract_links) 
 	}
 	
 	engine.shutdown();
+	log_utils::close_output_streams();
 }
