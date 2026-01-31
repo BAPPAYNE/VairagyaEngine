@@ -24,7 +24,7 @@ vector<string> extractLinks(const string& content) {
 
     for (auto it = begin; it != end; ++it) {
         string raw_url = (*it)[1].str();
-        links.push_back(raw_url);
+        links.emplace_back(raw_url);
     }
 
     return links;

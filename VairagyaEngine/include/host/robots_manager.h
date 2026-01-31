@@ -29,11 +29,17 @@ public:
 	void absolutizeRobotsRules(const string& base_url, RobotsRules& directives_rules);
 	bool canFetch(const string& url);
 	void updateRobots(const string& host, const RobotsRules& rules);
+	
+	// Check if we have cached rules for the host of this URL
+	bool hasRulesForUrl(const string& url);
+	
+	static string extractHost(const string& url);
+	static string extractPath(const string& url);
+	static string getRobotsURL(const string& url);
+
 private:
 	HostStateStore& hostStore_;
 
-	static string extractHost(const string& url);
-	static string extractPath(const string& url);
 	unordered_map<string, RobotsRules> cache;
 };
 

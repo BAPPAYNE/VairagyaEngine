@@ -27,6 +27,7 @@ add_executable(VairagyaEngine
     VairagyaEngine/src/storage/memory_url_state_store.cpp
     VairagyaEngine/src/storage/memory_content_state_store.cpp
     VairagyaEngine/src/storage/memory_host_state_store.cpp
+    VairagyaEngine/src/utils/utils.cpp
 )
 
 set_target_properties(VairagyaEngine PROPERTIES
