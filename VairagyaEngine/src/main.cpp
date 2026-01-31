@@ -19,6 +19,8 @@
 #include "utils/runtime.h"
 #include "utils/argparse.hpp"
 #include "utils/utils.h"
+#include "utils/config.h"
+
 
 using namespace std;
 using namespace argparse;
@@ -82,6 +84,19 @@ inline int handleArgument(int &argc, char *argv[]) {
         .default_value(false)
         .implicit_value(true);
 
+    program.add_argument("-v", "--verbose")
+        .help("Enable verbose logging.")
+        .default_value(false)
+		.implicit_value(true);
+
+    program.add_argument("-oj", "--output-json")
+        .help("JSON output file.")
+        .default_value(string(""));
+
+    program.add_argument("-o", "--output")
+        .help("TXT output file.")
+        .default_value(string(""));
+
     try {
         program.parse_args(argc, argv);
     }
@@ -108,16 +123,16 @@ int main(int argc, char *argv[])
     vector<string> seedUrls;
 
     // Check if -l flag is used and has a value
-    auto listPath = program.get<string>("--list");
-    if (!listPath.empty()) {
-        if (isValidPath(listPath)) {
-            cout << "[INFO] Loading URLs from: " << listPath << endl;
-            seedUrls = fetchLinesFromFile(listPath);
+    list_path = program.get<string>("--list");
+    if (!list_path.empty()) {
+        if (isValidPath(list_path)) {
+            cout << "[INFO] Loading URLs from: " << list_path << endl;
+            seedUrls = fetchLinesFromFile(list_path);
             if (seedUrls.empty()) {
                  cerr << "[WARNING] File is empty. Utilizing default seed URLs." << endl;
             }
         } else {
-             cerr << "[ERROR] Invalid file path provided: " << listPath << endl;
+             cerr << "[ERROR] Invalid file path provided: " << list_path << endl;
              return 1;
         }
     }
@@ -133,12 +148,14 @@ int main(int argc, char *argv[])
     cout << "[INFO] Starting Crawler with " << seedUrls.size() << " seed URLs.\n";
 
     // Check if --crawl-links flag is used
-    bool crawlLinks = program.get<bool>("--crawl-links");
+    crawl_links = program.get<bool>("--crawl-links");
+    json_output_path = program.get<string>("--output-json");
+    txt_output_path = program.get<string>("--output");
 
     cout << "[INFO] Starting Crawler with " << seedUrls.size() << " seed URLs.\n";
-    cout << "[INFO] Link extraction enabled: " << (crawlLinks ? "Yes" : "No") << "\n";
+    cout << "[INFO] Link extraction enabled: " << (crawl_links ? "Yes" : "No") << "\n";
 
-    crawler::runCrawler(seedUrls, crawlLinks);
+    crawler::runCrawler(seedUrls);
     
     cout << "[EXIT] Crawler stopped cleanly\n";
     
