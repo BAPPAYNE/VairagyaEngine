@@ -53,6 +53,8 @@ namespace crawler {
 
 		CrawlStats crawl_stats;
 
+		vector<string> getSuccessfulURLs() const;
+
 	private:
 		struct HostState {
 			queue<FrontierItem> urlQueue; // Queue of URLs for this host
