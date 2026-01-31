@@ -53,7 +53,7 @@ namespace net {
 
 			http::request<http::string_body> req{ http::verb::get, target, 11 };
 			req.set(http::field::host, host);
-			req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+			req.set(http::field::user_agent, "VairagyaEngine/1.0");
 
 			beast::flat_buffer buffer;
 			http::response<http::string_body> res;
