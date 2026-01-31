@@ -14,7 +14,7 @@ namespace crawler {
 
 	class Engine {
 	public:
-		Engine();
+		Engine(bool extract_links = false);
 
 		// Intake AFTER processing
 		void addURL(const string& url);
@@ -31,6 +31,7 @@ namespace crawler {
 		void markFetched(const string& url, uint16_t http_code);
 		void markDisallowed(const string& url);
 
+		std::vector<std::string> get200URLs() const;
 
 	private:
 		Frontier frontier; // Manages URLs to be crawled
@@ -38,9 +39,10 @@ namespace crawler {
 		storage::MemoryHostStateStore hostStore;
 		RobotsManager robotsManager;
 		bool running; // Indicates if the engine is active
+		bool extract_links_;
 	};
 
-	void runCrawler();
+	void runCrawler(const std::vector<std::string>& initialURLs);
 };
 
 #endif // ENGINE_H

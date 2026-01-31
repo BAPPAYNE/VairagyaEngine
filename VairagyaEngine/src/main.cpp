@@ -5,7 +5,7 @@
 #include <iostream>
 #include <atomic>
 #include <csignal>
-
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -16,11 +16,17 @@
 #include "crawler/engine.h"
 #include "utils/log.h"
 #include "net/fetcher.h"
-
 #include "utils/runtime.h"
+#include "utils/argparse.hpp"
+#include "utils/utils.h"
+#include "utils/config.h"
+
 
 using namespace std;
+using namespace argparse;
+
 atomic<bool> g_running{ true };
+ArgumentParser program("VairagyaEngine");
 
 #ifdef _WIN32
 #include <windows.h>
@@ -66,13 +72,91 @@ inline const char *enum_to_string(URLStatus status) {
     }
 }
 
-int main()
+
+inline int handleArgument(int &argc, char *argv[]) {
+    program.add_description("VairagyaEngine Web Crawler");
+    program.add_argument("-l", "--list")
+        .help("Specify list of url for initial urls crawling.")
+        .default_value(string("")); // Default to empty string if not provided
+
+    program.add_argument("-cl", "--crawl-links")
+        .help("Enable link extraction and recursive crawling.")
+        .default_value(false)
+        .implicit_value(true);
+
+    program.add_argument("-v", "--verbose")
+        .help("Enable verbose logging.")
+        .default_value(false)
+		.implicit_value(true);
+
+    program.add_argument("-oj", "--output-json")
+        .help("JSON output file.")
+        .default_value(string(""));
+
+    program.add_argument("-o", "--output")
+        .help("TXT output file.")
+        .default_value(string(""));
+
+    try {
+        program.parse_args(argc, argv);
+    }
+    catch (const exception &err) {
+        cerr << "[ERROR] Argument parsing failed: " << err.what() << endl;
+        cerr << program;
+        return 1;
+    }
+    return 0; // Success
+}   
+
+int main(int argc, char *argv[])
 {
 #ifdef _WIN32
     SetConsoleCtrlHandler(consoleHandler, TRUE);
 #endif
+    
+    if (handleArgument(argc, argv) != 0) {
+        return 1;
+    }
+
     signal(SIGINT, handle_sigint);
-    crawler::runCrawler();
+
+    vector<string> seedUrls;
+
+    // Check if -l flag is used and has a value
+    list_path = program.get<string>("--list");
+    if (!list_path.empty()) {
+        if (isValidPath(list_path)) {
+            cout << "[INFO] Loading URLs from: " << list_path << endl;
+            seedUrls = fetchLinesFromFile(list_path);
+            if (seedUrls.empty()) {
+                 cerr << "[WARNING] File is empty. Utilizing default seed URLs." << endl;
+            }
+        } else {
+             cerr << "[ERROR] Invalid file path provided: " << list_path << endl;
+             return 1;
+        }
+    }
+
+    // Default URLs if none loaded (or file was empty)
+    if (seedUrls.empty()) {
+        cout << "[INFO] Using default seed URLs." << endl;
+        seedUrls = {
+            "https://stackoverflow.com/questions"
+        };
+    }
+
+    cout << "[INFO] Starting Crawler with " << seedUrls.size() << " seed URLs.\n";
+
+    // Check if --crawl-links flag is used
+    crawl_links = program.get<bool>("--crawl-links");
+    json_output_path = program.get<string>("--output-json");
+    txt_output_path = program.get<string>("--output");
+
+    cout << "[INFO] Starting Crawler with " << seedUrls.size() << " seed URLs.\n";
+    cout << "[INFO] Link extraction enabled: " << (crawl_links ? "Yes" : "No") << "\n";
+
+    crawler::runCrawler(seedUrls);
+    
     cout << "[EXIT] Crawler stopped cleanly\n";
     
     return 0;

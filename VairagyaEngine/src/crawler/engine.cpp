@@ -1,4 +1,7 @@
 ﻿#include "crawler/engine.h"
+#include "crawler/engine.h"
+#include "utils/log.h"
+#include "utils/config.h"
 #include "net/fetcher.h"
 #include "crawler/scheduler.h"
 #include "storage/url_state_store.h"
@@ -9,18 +12,21 @@
 #include "utils/runtime.h"
 #include "host/robots_manager.h"
 #include "crawler/frontier.h"
+#include "utils/argparse.hpp"
 
 #include <iostream>
 
 using namespace std;
+using namespace argparse;
 
 namespace crawler {
-	Engine::Engine()
+	Engine::Engine(bool extract_links)
 		: frontier()
 		, scheduler(frontier)
 		, hostStore()
 		, robotsManager(hostStore)
 		, running(true)
+		, extract_links_(extract_links)
 	{
 	}
 
@@ -38,12 +44,14 @@ namespace crawler {
 
 	void Engine::processNextURL() {
 		if (!running) return;
-		cout << "[DISCOVERED] : " << frontier.crawl_stats.discovered<< "\n" <<
+		cout <<
+		    //"[DISCOVERED] : " << frontier.crawl_stats.discovered<< "\n" <<
 			"[FATCHED] : " << frontier.crawl_stats.fetched<< "\n" <<
-			"[FAILED] : " << frontier.crawl_stats.failed<< "\n" <<
-			"[RETRIED] : " << frontier.crawl_stats.retried<< "\n" <<
-			"[DISALLOWED] : " << frontier.crawl_stats.disallowed << "\n" << 
-			"----------------------\n";
+		//	"[FAILED] : " << frontier.crawl_stats.failed<< "\n" <<
+		//	"[RETRIED] : " << frontier.crawl_stats.retried<< "\n" <<
+		//	"[DISALLOWED] : " << frontier.crawl_stats.disallowed << "\n" << 
+		//	"----------------------\n"
+		"" ;
 		// 1. Get next URL from scheduler/frontier
 		auto itemOpt = scheduler.getNextURL();
 		if (!itemOpt) {
@@ -51,6 +59,31 @@ namespace crawler {
 		}
 
 		const FrontierItem& item = *itemOpt;
+
+		// 1.5. Check Robots.txt
+		if (!robotsManager.hasRulesForUrl(item.normalized_url)) {
+			string robotsUrl = RobotsManager::getRobotsURL(item.normalized_url);
+			if (!robotsUrl.empty()) {
+				// We don't have rules for this host yet. Fetch robots.txt first.
+				// Note: synchronous fetch here for simplicity.
+				auto result = net::fetch(robotsUrl);
+				
+				RobotsRules rules;
+				if (result.http_code >= 200 && result.http_code < 300) {
+					rules = robotsManager.extractRobotsDirectives(result.content, "VairagyaEngine");
+				} else {
+					// fetching failed or 404, assume allow all (default empty rules)
+				}
+				
+				string host = RobotsManager::extractHost(item.normalized_url);
+				robotsManager.updateRobots(host, rules);
+				
+				
+				cout << "[ROBOTS] Fetched " << robotsUrl << " Status: " << result.http_code 
+					<< " => Allowed: " << rules.allow.size() << ", Disallowed: " << rules.disallow.size() << endl;
+				
+			}
+		}
 
 		if (!robotsManager.canFetch(item.normalized_url)) {
 			markDisallowed(item.normalized_url);
@@ -64,8 +97,7 @@ namespace crawler {
 		auto cls = net::classify(result);
 
 		cout << "Fetched: " << item.normalized_url
-			//<< " HTTP:" << result.http_code
-			//<< " Class:" << static_cast<int>(cls)
+			<< " HTTP: " << result.http_code << " Size: " << result.content.size() 
 			<< endl;
 
 		// 4. Act based on classification
@@ -74,18 +106,26 @@ namespace crawler {
 		case net::ResponseClass::OK: {
 			// Mark success
 			markFetched(item.normalized_url, result.http_code);
+			
+			if (result.http_code == 200) {
+				log_utils::log_url(item.normalized_url);
+			}
 
 			// Extract raw links
-			auto rawLinks = extractLinks(result.content);
+			if (extract_links_) {
+				auto rawLinks = extractLinks(result.content);
 
-			// Resolve + process + enqueue
-			for (const auto& raw : rawLinks) {
-				auto resolved = resolveRelativeURL(raw, item.normalized_url);
-				if (!resolved) continue;
+				// Resolve + process + enqueue
+				for (const auto& raw : rawLinks) {
+					auto resolved = resolveRelativeURL(raw, item.normalized_url);
+					if (!resolved) continue;
 
-				auto processed = processURL(*resolved);
-				if (processed.status == URLStatus::ACCEPTED_URL) {
-					addURL(processed.normalized);
+					auto processed = processURL(*resolved);
+					if (processed.status == URLStatus::ACCEPTED_URL) {
+						if (robotsManager.canFetch(processed.normalized)) {
+							addURL(processed.normalized);
+						}
+					}
 				}
 			}
 			break;
@@ -163,17 +203,18 @@ namespace crawler {
 		frontier.markDisallowed(url);
 	}
 
+	vector<string> Engine::get200URLs() const {
+		return frontier.getSuccessfulURLs();
+	}
+
 };
 
-void crawler::runCrawler() {
-	Engine engine;
+void crawler::runCrawler(const vector<string>& initialURLs) {
+	Engine engine(crawl_links);
+
+	log_utils::init_output_streams(json_output_path, txt_output_path);
 
 	// Seed
-
-	vector<string> initialURLs = {
-		"https://stackoverflow.com",
-		"https://www.google.com"
-	};
 	int size_initialURLS = initialURLs.size();
 	for (int i = 0; i < size_initialURLS; i++) {
 		auto seed = processURL(initialURLs[i]);
@@ -187,4 +228,5 @@ void crawler::runCrawler() {
 	}
 	
 	engine.shutdown();
+	log_utils::close_output_streams();
 }

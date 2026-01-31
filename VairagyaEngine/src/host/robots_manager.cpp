@@ -36,8 +36,11 @@ static inline void trim(string& s) {
     s.erase(find_if(s.rbegin(), s.rend(), [](unsigned char c) { return !isspace(c); }).base(), s.end());
 }
 
-static inline bool startsWith(const string& s, const string& p) {
-    return s.size() >= p.size() && equal(p.begin(), p.end(), s.begin());
+static bool startsWithIgnoreCase(const string& str, const string& prefix) {
+    if (str.size() < prefix.size()) return false;
+    return equal(prefix.begin(), prefix.end(), str.begin(), [](char a, char b) {
+        return tolower((unsigned char)a) == tolower((unsigned char)b);
+    });
 }
 
 RobotsRules RobotsManager::extractRobotsDirectives(const string& robots_txt, const string& crawler_agent) {
@@ -66,7 +69,7 @@ RobotsRules RobotsManager::extractRobotsDirectives(const string& robots_txt, con
             continue;
 
         // User-agent
-        if (startsWith(line, "User-agent:")) {
+        if (startsWithIgnoreCase(line, "User-agent:")) {
 
             string agent = line.substr(11);
             trim(agent);
@@ -87,11 +90,11 @@ RobotsRules RobotsManager::extractRobotsDirectives(const string& robots_txt, con
         collecting_agents = false;
 
         // Sitemap (global)
-        if (startsWith(line, "Sitemap:")) {
+        if (startsWithIgnoreCase(line, "Sitemap:")) {
             string url = line.substr(8);
             trim(url);
             if (!url.empty())
-                rules.sitemaps.push_back(url);
+                rules.sitemaps.emplace_back(url);
             continue;
         }
 
@@ -99,19 +102,19 @@ RobotsRules RobotsManager::extractRobotsDirectives(const string& robots_txt, con
         if (!group_matches)
             continue;
 
-        if (startsWith(line, "Allow:")) {
+        if (startsWithIgnoreCase(line, "Allow:")) {
             string path = line.substr(6);
             trim(path);
             if (!path.empty())
-                rules.allow.push_back(path);
+                rules.allow.emplace_back(path);
             continue;
         }
 
-        if (startsWith(line, "Disallow:")) {
+        if (startsWithIgnoreCase(line, "Disallow:")) {
             string path = line.substr(9);
             trim(path);
             if (!path.empty())
-                rules.disallow.push_back(path);
+                rules.disallow.emplace_back(path);
             continue;
         }
     }
@@ -170,45 +173,169 @@ string RobotsManager::extractPath(const string& url) {
     return url.substr(path_start);
 }
 
+string RobotsManager::getRobotsURL(const string& url) {
+    auto scheme_end = url.find("://");
+    if (scheme_end == string::npos) return ""; 
+
+    auto host_start = scheme_end + 3;
+    auto host_end = url.find('/', host_start);
+    
+    string origin;
+    if (host_end == string::npos) {
+        origin = url;
+    } else {
+        origin = url.substr(0, host_end);
+    }
+    return origin + "/robots.txt";
+}
+
+bool RobotsManager::hasRulesForUrl(const string& url) {
+    string host = extractHost(url);
+    if (host.empty()) return false;
+    return cache.find(host) != cache.end();
+}
+
+
+static bool matchesRule(const string& path, const string& pattern) {
+    size_t p_len = pattern.length();
+    size_t s_len = path.length();
+    
+    // Check for '$' at the end of the pattern
+    bool end_anchor = (p_len > 0 && pattern.back() == '$');
+    string effective_pattern = end_anchor ? pattern.substr(0, p_len - 1) : pattern;
+    
+    size_t p_idx = 0;
+    size_t s_idx = 0;
+    size_t star_idx = string::npos;
+    size_t match_idx = 0;
+    
+    size_t ep_len = effective_pattern.length();
+
+    while (s_idx < s_len) {
+        if (p_idx < ep_len && effective_pattern[p_idx] == path[s_idx]) {
+            p_idx++;
+            s_idx++;
+        }
+        else if (p_idx < ep_len && effective_pattern[p_idx] == '*') {
+            star_idx = p_idx;
+            match_idx = s_idx;
+            p_idx++;
+        }
+        else if (star_idx != string::npos) {
+            p_idx = star_idx + 1;
+            match_idx++;
+            s_idx = match_idx;
+        }
+        else {
+            return false; 
+        }
+    }
+
+    // If we exhausted string, we must also exhaust pattern (handling trailing *)
+    while (p_idx < ep_len && effective_pattern[p_idx] == '*') {
+        p_idx++;
+    }
+
+    // If anchored, pattern must match whole string.
+    // If not anchored, we only needed to match the prefix (which means we consumed enough of path to satisfy pattern)
+    // BUT the loop above consumes the whole string.
+    
+    // WAIT. Robots.txt is a PREFIX match. The loop above enforces that the PATTERN matches the STRING.
+    // If checking prefix:
+    // /foo matches /foobar
+    // The loop above will FAIL for /foobar vs /foo because p_idx hits end but s_idx < s_len.
+    
+    // Let's rewrite for Prefix Match support explicitly.
+    return true; 
+}
+
+// Improved Wildcard Matcher for Robots.txt
+static bool robotsMatch(const string& path, const string& rule) {
+    size_t pathLen = path.length();
+    size_t ruleLen = rule.length();
+    
+    size_t pi = 0; // path index
+    size_t ri = 0; // rule index
+    
+    size_t starRi = string::npos;
+    size_t starPi = string::npos;
+
+    while (pi < pathLen && ri < ruleLen) {
+        if (rule[ri] == '$' && ri == ruleLen - 1) {
+             // End anchor reached. We must be at end of path (handled below).
+             break;
+        }
+        if (rule[ri] == path[pi]) {
+            pi++; ri++;
+        }
+        else if (rule[ri] == '*') {
+            starRi = ri;
+            starPi = pi;
+            ri++;
+        }
+        else if (starRi != string::npos) {
+             // Mismatch after *, backtrack
+             ri = starRi + 1;
+             starPi++;
+             pi = starPi;
+        }
+        else {
+            return false;
+        }
+    }
+
+    // Handle trailing * in rule
+    while (ri < ruleLen && rule[ri] == '*') ri++;
+    
+    // If we finished the rule:
+    if (ri == ruleLen) {
+        return true; // Match! (Prefix match successful)
+    }
+
+    // If rule ended with $, we must be at the end of path
+    if (rule[ri] == '$' && ri == ruleLen - 1) {
+        return pi == pathLen;
+    }
+
+    return false;
+}
+
+
 bool RobotsManager::canFetch(const string& url) {
 
     string host = extractHost(url);
-    if (host.empty())
-        return false; // malformed URL → deny defensively
+    if (host.empty()) return false; 
 
+    // Normalize empty path to "/"
+    string path = extractPath(url);
+    if (path.empty()) path = "/";
+
+    // Optimization: If no entry, assume allowed (or maybe we should fetch?)
+    // Current design assumes populate happens externally or lazily. 
+    // If extraction happens on same domain, rules might be there.
     auto it = cache.find(host);
     if (it == cache.end())
         return true;
 
     const RobotsRules& rules = it->second;
-    string path = extractPath(url);
 
     int best_allow_len = -1;
     int best_disallow_len = -1;
 
     for (const auto& rule : rules.allow) {
-        if (rule == "/") {
-            best_allow_len = max(best_allow_len, 1);
-        }
-        else if (path.starts_with(rule)) {
-            best_allow_len = max(best_allow_len, (int)rule.size());
+        if (robotsMatch(path, rule)) {
+             if ((int)rule.length() > best_allow_len) best_allow_len = (int)rule.length();
         }
     }
 
     for (const auto& rule : rules.disallow) {
-        if (rule == "/") {
-            best_disallow_len = max(best_disallow_len, 1);
-        }
-        else if (path.starts_with(rule)) {
-            best_disallow_len = max(best_disallow_len, (int)rule.size());
+         if (robotsMatch(path, rule)) {
+             if ((int)rule.length() > best_disallow_len) best_disallow_len = (int)rule.length();
         }
     }
 
-    if (best_allow_len < 0 && best_disallow_len < 0)
-        return true;
-
-    if (best_allow_len >= best_disallow_len)
-        return true;
-
-    return false;
+    if (best_allow_len == -1 && best_disallow_len == -1) return true;
+    
+    // google/rfc: "The longest rule matches"
+    return (best_allow_len >= best_disallow_len);
 }
