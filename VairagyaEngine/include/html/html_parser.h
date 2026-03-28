@@ -7,5 +7,6 @@
 using namespace std;
 
 vector<string> extractLinks(const string& content);
+static string extractHtmlHeader(const string& content);
 
 #endif // HTML_PARSER
