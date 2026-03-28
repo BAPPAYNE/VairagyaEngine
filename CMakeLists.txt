@@ -3,6 +3,7 @@
 project(VairagyaEngine LANGUAGES CXX)
 
 find_package(Boost REQUIRED COMPONENTS url)
+find_package(RocksDB CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
@@ -31,7 +32,9 @@ add_executable(VairagyaEngine
     VairagyaEngine/src/utils/utils.cpp
     VairagyaEngine/src/utils/log.cpp
     VairagyaEngine/src/utils/config.cpp
-    "VairagyaEngine/include/utils/config.h")
+    VairagyaEngine/src/utils/hash.cpp
+    VairagyaEngine/src/pipeline/doc_core_builder.cpp
+)
 
 set_target_properties(VairagyaEngine PROPERTIES
     CXX_STANDARD 20
@@ -51,4 +54,5 @@ target_link_libraries(VairagyaEngine
         OpenSSL::SSL
         OpenSSL::Crypto
         nlohmann_json::nlohmann_json
+        RocksDB::rocksdb
 )
