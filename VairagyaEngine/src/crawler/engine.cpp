@@ -1,5 +1,4 @@
 ﻿#include "crawler/engine.h"
-#include "crawler/engine.h"
 #include "utils/log.h"
 #include "utils/config.h"
 #include "net/fetcher.h"
@@ -13,8 +12,10 @@
 #include "host/robots_manager.h"
 #include "crawler/frontier.h"
 #include "utils/argparse.hpp"
+#include "pipeline/doc_core_builder.h"
 
 #include <iostream>
+#include <boost/url.hpp>
 
 using namespace std;
 using namespace argparse;
@@ -97,7 +98,7 @@ namespace crawler {
 		auto cls = net::classify(result);
 
 		cout << "Fetched: " << item.normalized_url
-			<< " HTTP: " << result.http_code << " Size: " << result.content.size() 
+			<< " HTTP: " << result.http_code << " Size: " << result.content.size()
 			<< endl;
 
 		// 4. Act based on classification
@@ -109,6 +110,13 @@ namespace crawler {
 			
 			if (result.http_code == 200) {
 				log_utils::log_url(item.normalized_url);
+				// Build DocCore (for now, we just log it, but this is where we'd normally store it or pass it to the next pipeline stage)
+				DocCore doc = DocCoreBuilder::build(item.normalized_url, result.content);
+				cout << "  - Language: " << doc.language_code << endl;
+				cout << "  - Charset: " << doc.charset << endl;
+				cout << "  - Content-Type: " << doc.content_type << endl;
+				cout << "  - Canonical: " << doc.canonical_url << endl;
+				cout << "  - Hash: " << doc.url_hash << endl;
 			}
 
 			// Extract raw links
@@ -122,7 +130,23 @@ namespace crawler {
 
 					auto processed = processURL(*resolved);
 					if (processed.status == URLStatus::ACCEPTED_URL) {
-						if (robotsManager.canFetch(processed.normalized)) {
+						// Check same-domain restriction if enabled
+						bool domain_allowed = true;
+						if (same_domain && !allowed_domains.empty()) {
+							try {
+								auto parsed = boost::urls::parse_uri(processed.normalized);
+								if (parsed) {
+									string domain = string(parsed->host());
+									domain_allowed = allowed_domains.find(domain) != allowed_domains.end();
+								} else {
+									domain_allowed = false;
+								}
+							} catch (...) {
+								domain_allowed = false;
+							}
+						}
+
+						if (domain_allowed && robotsManager.canFetch(processed.normalized)) {
 							addURL(processed.normalized);
 						}
 					}
