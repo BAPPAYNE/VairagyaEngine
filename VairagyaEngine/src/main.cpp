@@ -1,4 +1,8 @@
-﻿#include <string>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
+#include <string>
 #include <iostream>
 #include <atomic>
 #include <csignal>
@@ -17,17 +21,25 @@
 #include "utils/argparse.hpp"
 #include "utils/utils.h"
 #include "utils/config.h"
-#include "utils/hash.h"
-
-#include <boost/url.hpp>
-
+#include "storage/rocksdb_store.h"
 #include "pipeline/doc_core_builder.h"
+#include <boost/url.hpp>
 
 using namespace std;
 using namespace argparse;
 
 atomic<bool> g_running{ true };
 ArgumentParser program("VairagyaEngine");
+
+// Inline helper to initialize database schema and CFs
+inline std::shared_ptr<storage::RocksDBStore> initDatabase(const std::string& db_path) {
+    auto store = std::make_shared<storage::RocksDBStore>();
+    if (!store->open(db_path)) {
+        return nullptr;
+    }
+    return store;
+}
+
 
 // Signal Handlers
 #ifdef _WIN32
@@ -74,6 +86,10 @@ inline const char *enum_to_string(URLStatus status) {
 // Argument Parsing
 inline void setupArgumentParser() {
     program.add_description("VairagyaEngine Web Crawler");
+
+    program.add_argument("-d", "--domain")
+        .help("Specify a single domain/URL to crawl.")
+        .default_value(string(""));
     
     program.add_argument("-l", "--list")
         .help("Specify list of url for initial urls crawling.")
@@ -101,6 +117,10 @@ inline void setupArgumentParser() {
     program.add_argument("-o", "--output")
         .help("TXT output file.")
         .default_value(string(""));
+
+    program.add_argument("-db", "--database")
+        .help("Path to the RocksDB database.")
+        .default_value(string("vairagya_db"));
 }
 
 inline int parseArguments(int &argc, char *argv[]) {
@@ -121,6 +141,15 @@ inline int parseArguments(int &argc, char *argv[]) {
 inline vector<string> loadSeedUrls() {
     vector<string> seedUrls;
     
+    // 1. Check for single domain argument first
+    string single_domain = program.get<string>("--domain");
+    if (!single_domain.empty()) {
+        cout << "[INFO] Using single domain from CLI: " << single_domain << endl;
+        seedUrls.push_back(single_domain);
+        return seedUrls;
+    }
+
+    // 2. Check for list file
     list_path = program.get<string>("--list");
     if (!list_path.empty()) {
         if (isValidPath(list_path)) {
@@ -217,14 +246,17 @@ int main(int argc, char *argv[])
 
     displayCrawlerInfo(seedUrls);
 
-    crawler::runCrawler(seedUrls);
+    // Initialize database (schema and CFs)
+    string db_path = program.get<string>("--database");
+    auto db = initDatabase(db_path);
+    if (!db) {
+        cerr << "[ERROR] Database initialization failed: " << db_path << endl;
+        return 1;
+    }
+
+    crawler::runCrawler(seedUrls, db);
     
     cout << "[EXIT] Crawler stopped cleanly\n";
- //   string input = R"()";
- //   cin >> input;
- //   string hash = DocCoreBuilder::get_canonical_url(input);
-	//cout << "Canonical URL: " << hash << endl;
-    
     return 0;
 }
 
