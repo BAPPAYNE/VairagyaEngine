@@ -13,8 +13,8 @@ static const regex canonical_regex(
 );
 
 // Call this to fetch canonical_url, language_code, charset, content_type in form of DocCore.
-DocCore DocCoreBuilder::build(const string& normalized_url, const string& html_header) {
-	DocCore doc_core;
+storage::DocCore DocCoreBuilder::build(const std::string& normalized_url, const std::string& html_header) {
+	storage::DocCore doc_core;
 	doc_core.normalized_url = normalized_url;
 	doc_core.url_hash = hashUrl(normalized_url);
 	// Only attempt canonical extraction if HTML was provided
