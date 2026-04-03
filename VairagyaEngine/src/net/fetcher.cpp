@@ -1,4 +1,5 @@
-﻿#include "net/fetcher.h"
+#include "net/fetcher.h"
+#include <chrono>
 
 #include <boost/beast.hpp>
 #include <boost/beast/http.hpp>
@@ -24,8 +25,9 @@ namespace urls = boost::urls;
 
 namespace net {
 	FetchResult fetch(const string& uri_str, int timeout_ms) {
-		// Placeholder implementation
+		auto start = std::chrono::steady_clock::now();
 		try {
+			// ... (rest of the code remains same)
 			auto parsed = urls::parse_uri(uri_str);
 			if (!parsed) {
 				throw std::invalid_argument("Invalid URL");
@@ -95,18 +97,26 @@ namespace net {
 				stream.shutdown(ec); // ignore EOF
 			}
 
+			auto end = std::chrono::steady_clock::now();
+			long long latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
 			return {
 				FetchStatus::SUCCESS,
 				res.body(),
-				static_cast<uint16_t>(res.result_int())
+				static_cast<uint16_t>(res.result_int()),
+				latency_ms
 			};			
 		}
 		catch (const std::exception& e) {
+			auto end = std::chrono::steady_clock::now();
+			long long latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
 			FetchResult result;
 			result.status = FetchStatus::FAILED;
 			result.content = "";
 			result.http_code = 0;
+			result.fetch_time_ms = latency_ms;
 			return result;
 		}
 	}
-};
+};

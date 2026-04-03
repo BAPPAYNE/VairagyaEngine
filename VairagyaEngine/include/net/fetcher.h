@@ -21,6 +21,7 @@ namespace net {
 		FetchStatus status;
 		std::string content;
 		uint16_t http_code;
+		long long fetch_time_ms;
 	};
 
 	FetchResult fetch(const std::string& url, int timeout_ms = 5000);
