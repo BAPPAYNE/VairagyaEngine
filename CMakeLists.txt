@@ -1,8 +1,14 @@
-﻿cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.20)
 
 project(VairagyaEngine LANGUAGES CXX)
 
-find_package(Boost REQUIRED COMPONENTS url)
+# Suppress CMake policy warning for FindBoost removal (CMP0167)
+if(POLICY CMP0167)
+  cmake_policy(SET CMP0167 NEW)
+endif()
+
+# Use the config package for Boost.URL (as recommended by vcpkg/Boost.URL)
+find_package(boost_url CONFIG REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(nlohmann_json REQUIRED)
@@ -34,6 +40,15 @@ add_executable(VairagyaEngine
     VairagyaEngine/src/utils/config.cpp
     VairagyaEngine/src/utils/hash.cpp
     VairagyaEngine/src/pipeline/doc_core_builder.cpp
+    VairagyaEngine/src/pipeline/fetch_meta_builder.cpp
+    VairagyaEngine/src/pipeline/content_meta_builder.cpp
+    VairagyaEngine/src/pipeline/parsed_content_builder.cpp
+    VairagyaEngine/src/pipeline/link_data_builder.cpp
+    VairagyaEngine/src/pipeline/quality_signals_builder.cpp
+    VairagyaEngine/src/pipeline/presentation_builder.cpp
+    VairagyaEngine/src/pipeline/control_flags_builder.cpp
+    VairagyaEngine/external/simHash-cpp/simhash.cpp
+    VairagyaEngine/external/simHash-cpp/permutation.cpp
 )
 
 set_target_properties(VairagyaEngine PROPERTIES
@@ -45,12 +60,13 @@ set_target_properties(VairagyaEngine PROPERTIES
 target_include_directories(VairagyaEngine
     PRIVATE
         ${PROJECT_SOURCE_DIR}/VairagyaEngine/include
+    PUBLIC
+        ${PROJECT_SOURCE_DIR}/VairagyaEngine/external/simHash-cpp
 )
 
 target_link_libraries(VairagyaEngine
     PRIVATE
         Boost::url
-        Boost::boost
         OpenSSL::SSL
         OpenSSL::Crypto
         nlohmann_json::nlohmann_json
