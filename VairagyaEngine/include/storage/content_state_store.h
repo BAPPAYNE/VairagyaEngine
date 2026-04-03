@@ -17,7 +17,7 @@ namespace storage {
 
 		virtual bool seen(const string& content_hash) = 0; // Check if ContentState exists
 
-		virtual void record(const string& content_hash, const string& url, uint64_t ts) = 0;
+		virtual void record(const string& content_hash, const string& url, uint64_t ts) = 0; // record content state
 
 	};
 }; // namespace storage
