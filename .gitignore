@@ -13,6 +13,8 @@ CMakeUserPresets.json
 CMakePresets.json
 out
 .vs
+.vscode
+.gemini
 
 # CLion
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
