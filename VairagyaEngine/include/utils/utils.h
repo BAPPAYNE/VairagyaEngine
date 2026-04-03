@@ -6,8 +6,8 @@
 
 using namespace std;
 
-bool isValidPath(const string& path);
+bool isValidPath(const string& path); // validate path
     
-vector<string> fetchLinesFromFile(const string& path);
+vector<string> fetchLinesFromFile(const string& path); // fetch lines from file
 
 #endif // UTILS_H
