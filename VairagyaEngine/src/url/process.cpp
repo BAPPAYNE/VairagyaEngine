@@ -3,7 +3,10 @@
 #include "url/normalize.h"
 
 #include <boost/url.hpp>
-#include<iostream>
+#include <iostream>
+#include <algorithm>
+#include <sstream>
+#include <vector>
 
 using namespace std;
 using namespace boost::urls;
@@ -105,4 +108,28 @@ std::optional<string> resolveRelativeURL(const string& raw, const string& base_u
 	resolved.remove_fragment();
 
 	return resolved.buffer();
+}
+
+string reverseHost(const string& url_str) {
+	try {
+		auto parsed = boost::urls::parse_uri(url_str);
+		if (!parsed) return "";
+		string host = std::string(parsed->host());
+		
+		std::vector<std::string> parts;
+		std::string part;
+		std::istringstream stream(host);
+		while (std::getline(stream, part, '.')) {
+			parts.push_back(part);
+		}
+		
+		std::string reversed;
+		for (int i = (int)parts.size() - 1; i >= 0; --i) {
+			reversed += parts[i];
+			if (i > 0) reversed += ".";
+		}
+		return reversed;
+	} catch (...) {
+		return "";
+	}
 }
