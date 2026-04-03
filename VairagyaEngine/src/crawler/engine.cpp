@@ -1,4 +1,4 @@
-﻿#include "crawler/engine.h"
+#include "crawler/engine.h"
 #include "utils/log.h"
 #include "utils/config.h"
 #include "net/fetcher.h"
@@ -13,6 +13,14 @@
 #include "crawler/frontier.h"
 #include "utils/argparse.hpp"
 #include "pipeline/doc_core_builder.h"
+#include "pipeline/fetch_meta_builder.h"
+#include "pipeline/content_meta_builder.h"
+#include "pipeline/parsed_content_builder.h"
+#include "pipeline/link_data_builder.h"
+#include "pipeline/quality_signals_builder.h"
+#include "pipeline/presentation_builder.h"
+#include "pipeline/control_flags_builder.h"
+#include "storage/db_schema.h"
 
 #include <iostream>
 #include <boost/url.hpp>
@@ -21,18 +29,19 @@ using namespace std;
 using namespace argparse;
 
 namespace crawler {
-	Engine::Engine(bool extract_links)
+	Engine::Engine(bool extract_links, std::shared_ptr<storage::RocksDBStore> db_store)
 		: frontier()
 		, scheduler(frontier)
 		, hostStore()
+		, db_store(db_store)
 		, robotsManager(hostStore)
 		, running(true)
 		, extract_links_(extract_links)
 	{
 	}
 
-	void Engine::addURL(const string& url) {
-		frontier.push(url);
+	void Engine::addURL(const string& url, int depth, const string& referrer) {
+		frontier.push(url, depth, referrer);
 	}
 
 	optional<FrontierItem> Engine::nextURL() {
@@ -110,18 +119,55 @@ namespace crawler {
 			
 			if (result.http_code == 200) {
 				log_utils::log_url(item.normalized_url);
-				// Build DocCore (for now, we just log it, but this is where we'd normally store it or pass it to the next pipeline stage)
+				
+				// 1. Build Document Core
 				DocCore doc = DocCoreBuilder::build(item.normalized_url, result.content);
-				cout << "  - Language: " << doc.language_code << endl;
-				cout << "  - Charset: " << doc.charset << endl;
-				cout << "  - Content-Type: " << doc.content_type << endl;
-				cout << "  - Canonical: " << doc.canonical_url << endl;
-				cout << "  - Hash: " << doc.url_hash << endl;
+				
+				// 2. Assign and persistent increment Doc ID
+				uint64_t current_id = 0;
+				if (db_store) {
+					current_id = db_store->getNextDocId();
+					doc.doc_id = current_id;
+					db_store->setNextDocId(current_id + 1);
+				}
+				
+				// 3. Run Pipeline Builders
+				ParsedContent parsed = ParsedContentBuilder::build(result.content);
+				FetchMeta fetch = FetchMetaBuilder::build(result.http_code, (int)result.fetch_time_ms, 
+                                                               result.content.size(), "", "", 
+                                                               item.depth, item.referrer_url);
+				ContentMeta content = ContentMetaBuilder::build(parsed.clean_text);
+				LinkData links = LinkDataBuilder::build((uint32_t)extractLinks(result.content).size());
+				QualitySignals quality = QualitySignalsBuilder::build(parsed.clean_text, time(nullptr));
+				Presentation pres = PresentationBuilder::build(parsed.clean_text, result.content, "", 
+                                                                 item.normalized_url, "");
+				ControlFlags ctrl = ControlFlagsBuilder::build(result.content, true);
+
+				// 4. Persistence into RocksDB
+				if (db_store) {
+					using json = nlohmann::json;
+					db_store->put(storage::CF_DOC_CORE, doc.url_hash, json(doc).dump());
+					db_store->put(storage::CF_FETCH_META, doc.url_hash, json(fetch).dump());
+					db_store->put(storage::CF_CONTENT_META, doc.url_hash, json(content).dump());
+					db_store->put(storage::CF_PARSED_CONTENT, doc.url_hash, json(parsed).dump());
+					db_store->put(storage::CF_LINK_GRAPH, doc.url_hash, json(links).dump());
+					db_store->put(storage::CF_QUALITY, doc.url_hash, json(quality).dump());
+					db_store->put(storage::CF_PRESENTATION, doc.url_hash, json(pres).dump());
+					db_store->put(storage::CF_CONTROL, doc.url_hash, json(ctrl).dump());
+					
+					// Domain Indexing
+					std::string rev_host = reverseHost(item.normalized_url);
+					std::string domain_key = storage::RocksDBStore::buildDomainKey(rev_host, "/", doc.doc_id);
+					db_store->put(storage::CF_DOMAIN_INDEX, domain_key, doc.url_hash);
+				}
+
+				cout << "[INDEXED] " << item.normalized_url << " (ID: " << doc.doc_id << ", Lang: " << doc.language_code << ")\n";
 			}
 
 			// Extract raw links
 			if (extract_links_) {
 				auto rawLinks = extractLinks(result.content);
+				cout << "[LINKS] Found: " << rawLinks.size() << endl;
 
 				// Resolve + process + enqueue
 				for (const auto& raw : rawLinks) {
@@ -130,14 +176,20 @@ namespace crawler {
 
 					auto processed = processURL(*resolved);
 					if (processed.status == URLStatus::ACCEPTED_URL) {
-						// Check same-domain restriction if enabled
 						bool domain_allowed = true;
 						if (same_domain && !allowed_domains.empty()) {
 							try {
 								auto parsed = boost::urls::parse_uri(processed.normalized);
 								if (parsed) {
 									string domain = string(parsed->host());
-									domain_allowed = allowed_domains.find(domain) != allowed_domains.end();
+									domain_allowed = false;
+									for (const auto& allowed : allowed_domains) {
+										// Check if it's the exact domain or a subdomain
+										if (domain == allowed || (domain.size() > allowed.size() && domain.ends_with("." + allowed))) {
+											domain_allowed = true;
+											break;
+										}
+									}
 								} else {
 									domain_allowed = false;
 								}
@@ -147,7 +199,14 @@ namespace crawler {
 						}
 
 						if (domain_allowed && robotsManager.canFetch(processed.normalized)) {
-							addURL(processed.normalized);
+							// New URLs discovered at next depth
+							addURL(processed.normalized, item.depth + 1, item.normalized_url); 
+						} else {
+							if (!domain_allowed) {
+								// Optional: cout << "[DROPPED] Domain not allowed: " << processed.normalized << endl;
+							} else {
+								cout << "[DROPPED] Robots disallowed: " << processed.normalized << endl;
+							}
 						}
 					}
 				}
@@ -168,6 +227,7 @@ namespace crawler {
 		}
 
 		case net::ResponseClass::SERVER_ERROR:
+			[[fallthrough]];
 		case net::ResponseClass::NETWORK_ERROR: {
 			// Retryable
 			markRetry(item.normalized_url, result.status, result.http_code);
@@ -233,8 +293,8 @@ namespace crawler {
 
 };
 
-void crawler::runCrawler(const vector<string>& initialURLs) {
-	Engine engine(crawl_links);
+void crawler::runCrawler(const vector<string>& initialURLs, std::shared_ptr<storage::RocksDBStore> db_store) {
+	Engine engine(crawl_links, db_store);
 
 	log_utils::init_output_streams(json_output_path, txt_output_path);
 
@@ -243,7 +303,7 @@ void crawler::runCrawler(const vector<string>& initialURLs) {
 	for (int i = 0; i < size_initialURLS; i++) {
 		auto seed = processURL(initialURLs[i]);
 		if (seed.status == URLStatus::ACCEPTED_URL) {
-			engine.addURL(seed.normalized);
+			engine.addURL(seed.normalized, 0, "SEED");
 		}
 	}
 

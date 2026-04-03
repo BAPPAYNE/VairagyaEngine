@@ -8,16 +8,18 @@
 #include "url/process.h"
 #include "crawler/scheduler.h"
 #include "host/robots_manager.h"
+#include "storage/rocksdb_store.h"
 #include "storage/memory_host_state_store.h"
+#include <memory>
 
 namespace crawler {
 
 	class Engine {
 	public:
-		Engine(bool extract_links = false);
+		Engine(bool extract_links = false, std::shared_ptr<storage::RocksDBStore> db_store = nullptr);
 
 		// Intake AFTER processing
-		void addURL(const string& url);
+		void addURL(const string& url, int depth = 0, const string& referrer = "");
 
 		// Frontier access
 		std::optional<FrontierItem> nextURL();
@@ -37,12 +39,13 @@ namespace crawler {
 		Frontier frontier; // Manages URLs to be crawled
 		Scheduler scheduler; // Manages URL scheduling
 		storage::MemoryHostStateStore hostStore;
+		std::shared_ptr<storage::RocksDBStore> db_store;
 		RobotsManager robotsManager;
 		bool running; // Indicates if the engine is active
 		bool extract_links_;
 	};
 
-	void runCrawler(const std::vector<std::string>& initialURLs);
+	void runCrawler(const std::vector<std::string>& initialURLs, std::shared_ptr<storage::RocksDBStore> db_store = nullptr);
 };
 
 #endif // ENGINE_H
