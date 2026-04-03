@@ -6,6 +6,6 @@
 
 using namespace std;
 
-const basic_string<char> sha256(const string& input);
+const basic_string<char> sha256(const string& input); // compute sha256 hash of the input
 
 #endif // HASH_H
