@@ -1,4 +1,4 @@
-﻿#include "crawler/frontier.h"
+#include "crawler/frontier.h"
 #include "url/process.h"
 
 #include <unordered_map>
@@ -32,7 +32,7 @@ namespace crawler {
 		return url.substr(pos, end - pos);
 	}
 
-	void Frontier::push(const std::string& inputURL) {
+	void Frontier::push(const std::string& inputURL, int depth, const std::string& referrer) {
 
 		// 1. Validate + normalize
 		ProcessedURL pURL = processURL(inputURL);
@@ -76,7 +76,9 @@ namespace crawler {
 		hostQueue[host].urlQueue.push({
 			url,
 			pURL.priority,
-			state.retry_count
+			state.retry_count,
+			depth,
+			referrer
 			});
 	}
 

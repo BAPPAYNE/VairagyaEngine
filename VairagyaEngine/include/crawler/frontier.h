@@ -37,6 +37,8 @@ namespace crawler {
 		string normalized_url;
 		int priority;
 		uint8_t  retry_count;
+		int depth;
+		string referrer_url;
 	};
 
 	class Frontier {
@@ -46,7 +48,7 @@ namespace crawler {
 		void markFailed(const string& url, uint16_t http_status);
 		void markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_status);
 		void markDisallowed(const string& url);
-		void push(const string& url);
+		void push(const string& url, int depth = 0, const string& referrer = "");
 		optional<FrontierItem> pop();
 		bool empty() const;
 		void pushRetry(const FrontierItem& url);
