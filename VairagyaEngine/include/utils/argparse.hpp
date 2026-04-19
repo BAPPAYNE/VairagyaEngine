@@ -1714,7 +1714,7 @@ namespace argparse {
                     .nargs(0);
             }
             if ((add_args & default_arguments::version) == default_arguments::version) {
-                add_argument("-v", "--version")
+                add_argument("-V", "--version")
                     .action([&](const auto& /*unused*/) {
                     os << m_version << std::endl;
                     if (m_exit_on_default_arguments) {
