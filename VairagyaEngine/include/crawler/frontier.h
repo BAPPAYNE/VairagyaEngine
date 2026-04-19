@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
+#include <vector>
 
 #include "url/process.h"
 #include "storage/url_state.h"
@@ -41,6 +42,12 @@ namespace crawler {
 		string referrer_url;
 	};
 
+	struct FrontierItemPriority {
+		bool operator()(const FrontierItem& left, const FrontierItem& right) const {
+			return left.priority < right.priority;
+		}
+	};
+
 	class Frontier {
 
 	public:
@@ -56,10 +63,11 @@ namespace crawler {
 		CrawlStats crawl_stats;
 
 		vector<string> getSuccessfulURLs() const;
+		vector<string> getPendingURLs() const;
 
 	private:
 		struct HostState {
-			queue<FrontierItem> urlQueue; // Queue of URLs for this host
+			priority_queue<FrontierItem, vector<FrontierItem>, FrontierItemPriority> urlQueue;
 		};
 		unordered_map<string, HostState> hostQueue; // Map of host to its state
 		//unordered_set<size_t> visitedURLs; // Set of visited URL hashes
