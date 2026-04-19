@@ -12,17 +12,19 @@
 #include "storage/memory_host_state_store.h"
 #include <memory>
 
+using namespace std;
+
 namespace crawler {
 
 	class Engine {
 	public:
-		Engine(bool extract_links = false, std::shared_ptr<storage::RocksDBStore> db_store = nullptr);
+		Engine(bool extract_links = false, shared_ptr<storage::RocksDBStore> db_store = nullptr);
 
 		// Intake AFTER processing
 		void addURL(const string& url, int depth = 0, const string& referrer = "");
 
 		// Frontier access
-		std::optional<FrontierItem> nextURL();
+		optional<FrontierItem> nextURL();
 		bool frontierEmpty() const;
 		void processNextURL();
 		bool shouldContinue() const;
@@ -33,19 +35,20 @@ namespace crawler {
 		void markFetched(const string& url, uint16_t http_code);
 		void markDisallowed(const string& url);
 
-		std::vector<std::string> get200URLs() const;
+		vector<string> get200URLs() const;
+		vector<string> getPendingURLs() const;
 
 	private:
 		Frontier frontier; // Manages URLs to be crawled
 		Scheduler scheduler; // Manages URL scheduling
 		storage::MemoryHostStateStore hostStore;
-		std::shared_ptr<storage::RocksDBStore> db_store;
+		shared_ptr<storage::RocksDBStore> db_store;
 		RobotsManager robotsManager;
 		bool running; // Indicates if the engine is active
 		bool extract_links_;
 	};
 
-	void runCrawler(const std::vector<std::string>& initialURLs, std::shared_ptr<storage::RocksDBStore> db_store = nullptr);
+	void runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store = nullptr);
 };
 
 #endif // ENGINE_H

@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
+#include <vector>
 
 #include "url/process.h"
 #include "storage/url_state.h"
@@ -56,6 +57,7 @@ namespace crawler {
 		CrawlStats crawl_stats;
 
 		vector<string> getSuccessfulURLs() const;
+		vector<string> getPendingURLs() const;
 
 	private:
 		struct HostState {

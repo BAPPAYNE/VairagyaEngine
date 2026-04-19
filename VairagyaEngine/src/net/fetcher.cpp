@@ -25,17 +25,17 @@ namespace urls = boost::urls;
 
 namespace net {
 	FetchResult fetch(const string& uri_str, int timeout_ms) {
-		auto start = std::chrono::steady_clock::now();
+		auto start = chrono::steady_clock::now();
 		try {
 			// ... (rest of the code remains same)
 			auto parsed = urls::parse_uri(uri_str);
 			if (!parsed) {
-				throw std::invalid_argument("Invalid URL");
+				throw invalid_argument("Invalid URL");
 			}
 
 			urls::url_view url = *parsed;
 			if (url.host().empty()) {
-				throw std::invalid_argument("Invalid URL: Missing host");
+				throw invalid_argument("Invalid URL: Missing host");
 			}
 
 			bool is_https = (url.scheme() == "https");
@@ -84,7 +84,7 @@ namespace net {
 				if (!SSL_set_tlsext_host_name(
 					stream.native_handle(),
 					host.c_str())) {
-					throw std::runtime_error("SNI failed");
+					throw runtime_error("SNI failed");
 				}
 
 				beast::get_lowest_layer(stream).connect(results);
@@ -97,25 +97,27 @@ namespace net {
 				stream.shutdown(ec); // ignore EOF
 			}
 
-			auto end = std::chrono::steady_clock::now();
-			long long latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+			auto end = chrono::steady_clock::now();
+			long long latency_ms = chrono::duration_cast<chrono::milliseconds>(end - start).count();
 
 			return {
 				FetchStatus::SUCCESS,
 				res.body(),
 				static_cast<uint16_t>(res.result_int()),
-				latency_ms
+				latency_ms,
+                string(res[http::field::content_type])
 			};			
 		}
-		catch (const std::exception& e) {
-			auto end = std::chrono::steady_clock::now();
-			long long latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+		catch (const exception& e) {
+			auto end = chrono::steady_clock::now();
+			long long latency_ms = chrono::duration_cast<chrono::milliseconds>(end - start).count();
 
 			FetchResult result;
 			result.status = FetchStatus::FAILED;
 			result.content = "";
 			result.http_code = 0;
 			result.fetch_time_ms = latency_ms;
+			result.content_type = "";
 			return result;
 		}
 	}

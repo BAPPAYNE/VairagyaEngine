@@ -32,7 +32,7 @@ namespace crawler {
 		return url.substr(pos, end - pos);
 	}
 
-	void Frontier::push(const std::string& inputURL, int depth, const std::string& referrer) {
+	void Frontier::push(const string& inputURL, int depth, const string& referrer) {
 
 		// 1. Validate + normalize
 		ProcessedURL pURL = processURL(inputURL);
@@ -41,25 +41,29 @@ namespace crawler {
 			return;
 		}
 		crawl_stats.discovered++;
-		const std::string& url = pURL.normalized;
+		const string& url = pURL.normalized;
 
 		// 2. Get or create URL state
 		auto& state = urlStates[url];
 
-		// First time seeing this URL
-		if (state.normalized_url.empty()) {
-			state.normalized_url = url;
-			state.retry_count = 0;
-			state.fetch_status = net::FetchStatus::UNKNOWN_ERROR; // initial placeholder
-			state.http_status = 0;
-			state.last_fetch_ts = 0;
-			state.content_hash.clear();
+		// Already saw this URL?
+		if (!state.normalized_url.empty()) {
+			// If it was already fetched, failed, or is already in the queue (UNKNOWN_ERROR), skip
+			if (state.fetch_status == net::FetchStatus::SUCCESS ||
+				state.fetch_status == net::FetchStatus::FAILED ||
+				state.fetch_status == net::FetchStatus::ROBOTS_DISALLOWED ||
+				state.fetch_status == net::FetchStatus::UNKNOWN_ERROR) {
+				return;
+			}
 		}
 
-		// 3. Terminal success → never enqueue again
-		if (state.fetch_status == net::FetchStatus::SUCCESS) {
-			return;
-		}
+		// First time seeing this URL or needs processing
+		state.normalized_url = url;
+		state.retry_count = 0;
+		state.fetch_status = net::FetchStatus::UNKNOWN_ERROR; // Mark as pending
+		state.http_status = 0;
+		state.last_fetch_ts = 0;
+		state.content_hash.clear();
 
 		// 4. Retry limit reached → drop
 		if (state.retry_count >= MAX_RETRY_COUNT) {
@@ -67,7 +71,7 @@ namespace crawler {
 		}
 
 		// 5. Extract host
-		std::string host = extractHost(url);
+		string host = extractHost(url);
 		if (host.empty()) {
 			return;
 		}
@@ -187,6 +191,27 @@ namespace crawler {
 			}
 		}
 		return successURLs;
+	}
+
+	vector<string> Frontier::getPendingURLs() const {
+		vector<string> pendingURLs;
+		unordered_set<string> seen;
+		for (const auto& [host, state] : hostQueue) {
+			queue<FrontierItem> queueCopy = state.urlQueue;
+			while (!queueCopy.empty()) {
+				const auto& url = queueCopy.front().normalized_url;
+				if (seen.insert(url).second) {
+					pendingURLs.push_back(url);
+				}
+				queueCopy.pop();
+			}
+		}
+		for (const auto& [url, state] : urlStates) {
+			if (state.fetch_status == net::FetchStatus::UNKNOWN_ERROR && seen.insert(url).second) {
+				pendingURLs.push_back(url);
+			}
+		}
+		return pendingURLs;
 	}
 	
 }
