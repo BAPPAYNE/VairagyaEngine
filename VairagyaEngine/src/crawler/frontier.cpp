@@ -92,7 +92,7 @@ namespace crawler {
 	optional<FrontierItem> Frontier::pop() {
 		for (auto& [host, state] : hostQueue) {
 			if (!state.urlQueue.empty()) {
-				FrontierItem item = state.urlQueue.front();
+				FrontierItem item = state.urlQueue.top();
 				state.urlQueue.pop();
 				return item;
 			}
@@ -200,7 +200,7 @@ namespace crawler {
 		for (const auto& [host, state] : hostQueue) {
 			auto queueCopy = state.urlQueue;
 			while (!queueCopy.empty()) {
-				const auto& url = queueCopy.front().normalized_url;
+				const auto& url = queueCopy.top().normalized_url;
 				if (seen.insert(url).second) {
 					pendingURLs.push_back(url);
 				}
