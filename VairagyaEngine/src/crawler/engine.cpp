@@ -130,11 +130,10 @@ namespace crawler {
                     string lower_url = item.normalized_url;
                     transform(lower_url.begin(), lower_url.end(), lower_url.begin(), ::tolower);
                     if (lower_url.find(".woff") != string::npos || lower_url.find(".ttf") != string::npos ||
-                        lower_url.find(".png") != string::npos || lower_url.find(".jpg") != string::npos ||
-                        lower_url.find(".jpeg") != string::npos || lower_url.find(".gif") != string::npos ||
-                        lower_url.find(".ico") != string::npos || lower_url.find(".pdf") != string::npos ||
+                    	lower_url.find(".gif") != string::npos || lower_url.find(".ico") != string::npos ||
                         lower_url.find(".zip") != string::npos || lower_url.find(".gz") != string::npos ||
-                        lower_url.find(".bin") != string::npos || lower_url.find(".woff2") != string::npos) {
+                        lower_url.find(".bin") != string::npos || lower_url.find(".woff2") != string::npos ||
+						lower_url.find(".js") != string::npos  || lower_url.find(".css") != string::npos ) {
                         parseable = false;
                     }
                 }
