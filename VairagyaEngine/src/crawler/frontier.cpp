@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
+#include <vector>
 #include <string>
 #include <iostream>
 #include <ctime>
@@ -14,7 +15,7 @@ namespace crawler {
 
 	// internal state for each host
 	struct HostState {
-		queue<FrontierItem> urlQueue;
+		priority_queue<FrontierItem, vector<FrontierItem>, FrontierItemPriority> urlQueue;
 	};
 
 	// Simple hash function for URLs
@@ -197,7 +198,7 @@ namespace crawler {
 		vector<string> pendingURLs;
 		unordered_set<string> seen;
 		for (const auto& [host, state] : hostQueue) {
-			queue<FrontierItem> queueCopy = state.urlQueue;
+			auto queueCopy = state.urlQueue;
 			while (!queueCopy.empty()) {
 				const auto& url = queueCopy.front().normalized_url;
 				if (seen.insert(url).second) {
