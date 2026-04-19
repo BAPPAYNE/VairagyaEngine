@@ -87,13 +87,26 @@ inline const char *enum_to_string(URLStatus status) {
 inline void setupArgumentParser() {
     program.add_description("VairagyaEngine Web Crawler");
 
-    program.add_argument("-d", "--domain")
+    // Mutually exclusive group for input source
+    auto& input_group = program.add_mutually_exclusive_group(true); // required
+
+    input_group.add_argument("-d", "--domain")
         .help("Specify a single domain/URL to crawl.")
-        .default_value(string(""));
-    
-    program.add_argument("-l", "--list")
+        .nargs(1);
+
+    input_group.add_argument("-l", "--list")
         .help("Specify list of url for initial urls crawling.")
-        .default_value(string(""));
+        .nargs(1);
+
+    input_group.add_argument("-cd", "--crawl-database")
+        .help("Crawl all URLs from the database as seeds.")
+        .default_value(false)
+        .implicit_value(true);
+
+    input_group.add_argument("--resume-db")
+        .help("Resume crawling from database frontier (load uncrawled/scheduled URLs from DB).")
+        .default_value(false)
+        .implicit_value(true);
 
     program.add_argument("-cl", "--crawl-links")
         .help("Enable link extraction and recursive crawling.")
@@ -110,6 +123,11 @@ inline void setupArgumentParser() {
         .default_value(false)
         .implicit_value(true);
 
+    program.add_argument("-ir", "--ignore-robots")
+        .help("Ignore robots.txt rules when fetching sites.")
+        .default_value(false)
+        .implicit_value(true);
+
     program.add_argument("-oj", "--output-json")
         .help("JSON output file.")
         .default_value(string(""));
@@ -121,6 +139,7 @@ inline void setupArgumentParser() {
     program.add_argument("-db", "--database")
         .help("Path to the RocksDB database.")
         .default_value(string("vairagya_db"));
+
 }
 
 inline int parseArguments(int &argc, char *argv[]) {
@@ -180,6 +199,7 @@ inline vector<string> loadSeedUrls() {
 inline void loadConfiguration() {
     crawl_links = program.get<bool>("--crawl-links");
     same_domain = program.get<bool>("--same-domain");
+    ignore_robots = program.get<bool>("--ignore-robots");
     json_output_path = program.get<string>("--output-json");
     txt_output_path = program.get<string>("--output");
 }
@@ -190,14 +210,21 @@ inline void extractAllowedDomains(const vector<string>& seedUrls) {
     }
     
     for (const auto& url : seedUrls) {
+        std::string test_url = url;
+        // Auto-prepend scheme if missing
+        if (test_url.find("://") == std::string::npos) {
+            test_url = "http://" + test_url;
+        }
         try {
-            auto parsed = boost::urls::parse_uri(url);
+            auto parsed = boost::urls::parse_uri(test_url);
             if (parsed) {
                 string domain = string(parsed->host());
                 allowed_domains.insert(domain);
+            } else {
+                cerr << "[WARNING] Could not parse domain from: " << url << endl;
             }
         } catch (...) {
-            cerr << "[WARNING] Could not parse domain from: " << url << endl;
+            cerr << "[WARNING] Exception parsing domain from: " << url << endl;
         }
     }
     
@@ -232,19 +259,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Load seed URLs from file or use defaults
-    vector<string> seedUrls = loadSeedUrls();
-    if (seedUrls.empty()) {
-        return 1;  // Error already logged in loadSeedUrls
-    }
-
     // Load configuration from parsed arguments
     loadConfiguration();
-
-    // Extract allowed domains if same-domain mode is enabled
-    extractAllowedDomains(seedUrls);
-
-    displayCrawlerInfo(seedUrls);
 
     // Initialize database (schema and CFs)
     string db_path = program.get<string>("--database");
@@ -254,8 +270,43 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    vector<string> seedUrls;
+    if (program.get<bool>("--resume-db")) {
+        seedUrls = db->loadPendingURLs();
+        if (seedUrls.empty()) {
+            cerr << "[ERROR] No pending URLs found in DB to resume." << endl;
+            return 1;
+        }
+        cout << "[INFO] Resuming " << seedUrls.size() << " pending URLs from DB." << endl;
+    } else if (program.get<bool>("--crawl-database")) {
+        // Load all URLs from DB (implement db->getAllUrls() as needed)
+        seedUrls = db->getUrlsBatch(100); // Example batch size
+        if (seedUrls.empty()) {
+            cerr << "[ERROR] No URLs found in DB to crawl." << endl;
+            return 1;
+        }
+        cout << "[INFO] Loaded " << seedUrls.size() << " URLs from DB." << endl;
+    } else if (program.is_used("--domain")) {
+        string single_domain = program.get<string>("--domain");
+        cout << "[INFO] Using single domain from CLI: " << single_domain << endl;
+        seedUrls.push_back(single_domain);
+    } else if (program.is_used("--list")) {
+        string list_path = program.get<string>("--list");
+        if (isValidPath(list_path)) {
+            cout << "[INFO] Loading URLs from: " << list_path << endl;
+            seedUrls = fetchLinesFromFile(list_path);
+        } else {
+            cerr << "[ERROR] Invalid file path provided: " << list_path << endl;
+            return 1;
+        }
+    }
+
+    // Extract allowed domains if same-domain mode is enabled
+    extractAllowedDomains(seedUrls);
+    displayCrawlerInfo(seedUrls);
+
     crawler::runCrawler(seedUrls, db);
-    
+
     cout << "[EXIT] Crawler stopped cleanly\n";
     return 0;
 }
