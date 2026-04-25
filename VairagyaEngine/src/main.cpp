@@ -1,4 +1,4 @@
-#ifndef NOMINMAX
+﻿#ifndef NOMINMAX
 #define NOMINMAX
 #endif
 
@@ -144,9 +144,32 @@ inline void setupArgumentParser() {
 
 inline int parseArguments(int &argc, char *argv[]) {
     setupArgumentParser();
-    
+
     try {
-        program.parse_args(argc, argv);
+        if (argc <= 1) {
+            cout << "[INFO] No CLI flags specified. Defaulting to crawl database mode "
+                 << "with link crawling, robots ignored, and database 'vairagya_db'."
+                 << endl;
+
+            static vector<string> defaultArgs = {
+                argv[0],
+                "-cd",
+                "-cl",
+                "-ir",
+                "-db",
+                "vairagya_db"
+            };
+            vector<char*> defaultArgv;
+            defaultArgv.reserve(defaultArgs.size());
+            for (auto& arg : defaultArgs) {
+                defaultArgv.push_back(arg.data());
+            }
+
+            int defaultArgc = static_cast<int>(defaultArgv.size());
+            program.parse_args(defaultArgc, defaultArgv.data());
+        } else {
+            program.parse_args(argc, argv);
+        }
     }
     catch (const exception &err) {
         cerr << "[ERROR] Argument parsing failed: " << err.what() << endl;
@@ -185,11 +208,8 @@ inline vector<string> loadSeedUrls() {
 
     // Default URLs if none loaded (or file was empty)
     if (seedUrls.empty()) {
-        cout << "[INFO] Using default seed URLs." << endl;
-        seedUrls = {
-            //"https://stackoverflow.com/questions"
-            "https://www.youtube.com"
-        };
+        cout << "[ERROR] No URL specified." << endl;
+        exit(1);
     }
     
     return seedUrls;

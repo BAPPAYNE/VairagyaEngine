@@ -35,7 +35,10 @@
             "displayName": "x64 Release",
             "inherits": "x64-debug",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
+              "CMAKE_BUILD_TYPE": "Release",
+              "CMAKE_TOOLCHAIN_FILE": "D:/library_openssl/vcpkg/scripts/buildsystems/vcpkg.cmake",
+              "VCPKG_TARGET_TRIPLET": "x64-windows",
+              "CMAKE_PREFIX_PATH": "D:/library_openssl/vcpkg/installed/x64-windows/share/boost-url"
             }
         },
         {

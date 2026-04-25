@@ -170,8 +170,9 @@ namespace storage {
         if (!db_ || limit == 0)
             return urls;
 
-        auto h = handles_.find(CF_DOMAIN_INDEX);
-        if (h == handles_.end())
+        auto domain_it = handles_.find(CF_DOMAIN_INDEX);
+        auto doc_core_it = handles_.find(CF_DOC_CORE);
+        if (domain_it == handles_.end() || doc_core_it == handles_.end())
             return urls;
 
         const string cursor_key = "__scan_cursor__";
@@ -191,7 +192,7 @@ namespace storage {
         ro.prefix_same_as_start = true;
 
         unique_ptr<rocksdb::Iterator> it(
-            db_->NewIterator(ro, h->second)
+            db_->NewIterator(ro, domain_it->second)
         );
 
         if (status.ok() && !last_key.empty()) {
@@ -211,7 +212,25 @@ namespace storage {
             if (key.rfind("d:", 0) != 0)
                 break; // prefix ended
 
-            urls.emplace_back(it->value().ToString());
+            const string url_hash = it->value().ToString();
+            string doc_core_json;
+            auto doc_status = db_->Get(
+                rocksdb::ReadOptions(),
+                doc_core_it->second,
+                url_hash,
+                &doc_core_json
+            );
+
+            if (doc_status.ok() && !doc_core_json.empty()) {
+                try {
+                    auto doc = json::parse(doc_core_json).get<DocCore>();
+                    if (!doc.normalized_url.empty()) {
+                        urls.emplace_back(doc.normalized_url);
+                    }
+                } catch (...) {
+                    // Skip malformed doc_core records and continue scanning.
+                }
+            }
             last_processed = key;
         }
 
