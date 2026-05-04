@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 
 project(VairagyaEngine LANGUAGES CXX)
 
@@ -35,6 +35,13 @@ add_executable(VairagyaEngine
     VairagyaEngine/src/storage/memory_url_state_store.cpp
     VairagyaEngine/src/storage/memory_content_state_store.cpp
     VairagyaEngine/src/storage/memory_host_state_store.cpp
+    VairagyaEngine/src/query/query_processor.cpp
+    VairagyaEngine/src/query/index_searcher.cpp
+    VairagyaEngine/src/query/ranker.cpp
+    VairagyaEngine/src/query/snippet_generator.cpp
+    VairagyaEngine/src/query/result_builder.cpp
+    VairagyaEngine/src/query/query_engine.cpp
+    VairagyaEngine/src/api/search_api.cpp
     VairagyaEngine/src/utils/utils.cpp
     VairagyaEngine/src/utils/log.cpp
     VairagyaEngine/src/utils/config.cpp
@@ -49,6 +56,13 @@ add_executable(VairagyaEngine
     VairagyaEngine/src/pipeline/control_flags_builder.cpp
     VairagyaEngine/external/simHash-cpp/simhash.cpp
     VairagyaEngine/external/simHash-cpp/permutation.cpp
+    VairagyaEngine/src/query/index_searcher.cpp
+    VairagyaEngine/src/query/query_engine.cpp
+    VairagyaEngine/src/query/ranker.cpp
+    VairagyaEngine/src/query/query_processor.cpp
+    VairagyaEngine/src/query/result_builder.cpp
+    VairagyaEngine/src/query/snippet_generator.cpp
+    VairagyaEngine/src/api/search_api.cpp
 )
 
 set_target_properties(VairagyaEngine PROPERTIES
@@ -72,3 +86,8 @@ target_link_libraries(VairagyaEngine
         nlohmann_json::nlohmann_json
         RocksDB::rocksdb
 )
+
+if(WIN32)
+    target_compile_definitions(VairagyaEngine PRIVATE _WIN32_WINNT=0x0601)
+    target_link_libraries(VairagyaEngine PRIVATE ws2_32 mswsock)
+endif()
