@@ -3,6 +3,8 @@
 
 #include <string>
 #include <optional>
+#include <mutex>
+#include <atomic>
 
 #include "crawler/frontier.h"
 #include "url/process.h"
@@ -27,6 +29,7 @@ namespace crawler {
 		optional<FrontierItem> nextURL();
 		bool frontierEmpty() const;
 		void processNextURL();
+		void run(size_t worker_count);
 		bool shouldContinue() const;
 		void shutdown();
 
@@ -44,11 +47,15 @@ namespace crawler {
 		storage::MemoryHostStateStore hostStore;
 		shared_ptr<storage::RocksDBStore> db_store;
 		RobotsManager robotsManager;
-		bool running; // Indicates if the engine is active
+		atomic<bool> running; // Indicates if the engine is active
 		bool extract_links_;
+		mutex doc_id_mutex_;
+
+		void processItem(const FrontierItem& item);
+		void workerLoop(size_t worker_id);
 	};
 
-	void runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store = nullptr);
+	void runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store = nullptr, size_t worker_count = 1);
 };
 
 #endif // ENGINE_H

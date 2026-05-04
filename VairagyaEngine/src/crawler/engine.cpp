@@ -26,6 +26,8 @@
 #include <exception>
 #include <iostream>
 #include <string>
+#include <thread>
+#include <vector>
 #include <boost/url.hpp>
 
 using namespace std;
@@ -56,22 +58,31 @@ namespace crawler {
 	}
 
 	void Engine::processNextURL() {
-		if (!running) return;
-		cout <<
-		    "[DISCOVERED] : " << frontier.crawl_stats.discovered<< "\n" <<
-			"[FETCHED] : " << frontier.crawl_stats.fetched<< "\n" <<
-			"[FAILED] : " << frontier.crawl_stats.failed<< "\n" <<
-			"[RETRIED] : " << frontier.crawl_stats.retried<< "\n" <<
-			"[DISALLOWED] : " << frontier.crawl_stats.disallowed << "\n" << 
-			"----------------------\n"
-		"" ;
+		if (!running.load()) return;
 		// 1. Get next URL from scheduler/frontier
 		auto itemOpt = scheduler.getNextURL();
 		if (!itemOpt) {
 			return;
 		}
 
-		const FrontierItem& item = *itemOpt;
+		processItem(*itemOpt);
+		frontier.completeWork();
+	}
+
+	void Engine::processItem(const FrontierItem& item) {
+		if (!g_running.load() || !running.load()) {
+			return;
+		}
+
+		auto stats = frontier.stats();
+		cout <<
+		    //"[DISCOVERED] : " << stats.discovered<< "\n" <<
+			//"[FETCHED] : " << stats.fetched<< "\n" <<
+			//"[FAILED] : " << stats.failed<< "\n" <<
+			//"[RETRIED] : " << stats.retried<< "\n" <<
+			//"[DISALLOWED] : " << stats.disallowed << "\n" << 
+			//"----------------------\n"
+		"" ;
 
         // 1.5. Check Robots.txt only if NOT ignoring robots
 		if (!ignore_robots) {
@@ -89,8 +100,8 @@ namespace crawler {
 					}
 					string host = RobotsManager::extractHost(item.normalized_url);
 					robotsManager.updateRobots(host, rules);
-					cout << "[ROBOTS] Fetched " << robotsUrl << " Status: " << result.http_code 
-						<< " => Allowed: " << rules.allow.size() << ", Disallowed: " << rules.disallow.size() << " (Ignored: No)" << endl;
+					cout << "[ROBOTS] Fetched " << robotsUrl << " Status: " << result.http_code;
+						//<< " => Allowed: " << rules.allow.size() << ", Disallowed: " << rules.disallow.size() << " (Ignored: No)" << endl;
 				}
 			}
 			if (!robotsManager.canFetch(item.normalized_url)) {
@@ -143,10 +154,28 @@ namespace crawler {
 				
 				// 2. Assign and persistent increment Doc ID
 				uint64_t current_id = 0;
+				bool is_new_url = true;
 				if (db_store) {
-					current_id = db_store->getNextDocId();
-					doc.doc_id = current_id;
-					db_store->setNextDocId(current_id + 1);
+					auto existing_doc_json = db_store->get(storage::CF_DOC_CORE, doc.url_hash);
+					if (existing_doc_json) {
+						try {
+							auto existing_doc = nlohmann::json::parse(*existing_doc_json).get<storage::DocCore>();
+							if (existing_doc.normalized_url == doc.normalized_url && existing_doc.doc_id != 0) {
+								doc.doc_id = existing_doc.doc_id;
+								doc.first_seen_time = existing_doc.first_seen_time;
+								is_new_url = false;
+							}
+						} catch (...) {
+							// Malformed existing records are overwritten with a fresh id below.
+						}
+					}
+
+					if (is_new_url) {
+						lock_guard<mutex> lock(doc_id_mutex_);
+						current_id = db_store->getNextDocId();
+						doc.doc_id = current_id;
+						db_store->setNextDocId(current_id + 1);
+					}
 				}
 				
 				// 3. Run Pipeline Builders
@@ -183,10 +212,12 @@ namespace crawler {
 					db_store->put(storage::CF_PRESENTATION, doc.url_hash, json(pres).dump());
 					db_store->put(storage::CF_CONTROL, doc.url_hash, json(ctrl).dump());
 					
-					// Domain Indexing
-					string rev_host = reverseHost(item.normalized_url);
-					string domain_key = storage::RocksDBStore::buildDomainKey(rev_host, "/", doc.doc_id);
-					db_store->put(storage::CF_DOMAIN_INDEX, domain_key, doc.url_hash);
+					if (is_new_url) {
+						// Domain Indexing
+						string rev_host = reverseHost(item.normalized_url);
+						string domain_key = storage::RocksDBStore::buildDomainKey(rev_host, "/", doc.doc_id);
+						db_store->put(storage::CF_DOMAIN_INDEX, domain_key, doc.url_hash);
+					}
 				}
 
 				cout << "[INDEXED] " << item.normalized_url << " (ID: " << doc.doc_id << ", Lang: " << doc.language_code << ")\n";
@@ -196,6 +227,9 @@ namespace crawler {
 
                     // Resolve + process + enqueue
                     for (const auto& raw : rawLinks) {
+						if (!g_running.load() || !running.load()) {
+							break;
+						}
                         auto resolved = resolveRelativeURL(raw, item.normalized_url);
                         if (!resolved) continue;
 
@@ -265,8 +299,44 @@ namespace crawler {
 		
 	}
 
+	void Engine::workerLoop(size_t worker_id) {
+		while (g_running.load() && running.load()) {
+			auto itemOpt = frontier.popWait(g_running);
+			if (!itemOpt) {
+				break;
+			}
+
+			try {
+				processItem(*itemOpt);
+			} catch (const exception& err) {
+				cerr << "[ERROR] Worker " << worker_id << " crashed while processing URL: " << err.what() << "\n";
+			} catch (...) {
+				cerr << "[ERROR] Worker " << worker_id << " crashed while processing URL with an unknown exception.\n";
+			}
+			frontier.completeWork();
+		}
+	}
+
+	void Engine::run(size_t worker_count) {
+		if (worker_count == 0) {
+			worker_count = 1;
+		}
+
+		vector<thread> workers;
+		workers.reserve(worker_count);
+		for (size_t i = 0; i < worker_count; ++i) {
+			workers.emplace_back(&Engine::workerLoop, this, i + 1);
+		}
+
+		for (auto& worker : workers) {
+			if (worker.joinable()) {
+				worker.join();
+			}
+		}
+	}
+
 	bool Engine::shouldContinue() const {
-		if (!running) {
+		if (!running.load()) {
 			return false;
 		}
 		if (frontierEmpty()) {
@@ -290,7 +360,8 @@ namespace crawler {
 			Prevent new URL processing
 			Allow current operation to complete
 		*/
-		running = false;
+		running.store(false);
+		frontier.shutdown();
 	}
 
 	void Engine::markFetched(const string& url, uint16_t http_status) {
@@ -319,7 +390,7 @@ namespace crawler {
 
 };
 
-void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store) {
+void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store, size_t worker_count) {
 	Engine engine(crawl_links, db_store);
 
 	log_utils::init_output_streams(json_output_path, txt_output_path);
@@ -340,21 +411,10 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 	}
 	saveCheckpoint();
 
-	while (g_running && engine.shouldContinue()) {
-		saveCheckpoint();
-		try {
-			engine.processNextURL();
-		} catch (const exception& err) {
-			cerr << "[ERROR] URL processing crashed: " << err.what() << "\n";
-			saveCheckpoint();
-			continue;
-		} catch (...) {
-			cerr << "[ERROR] URL processing crashed with an unknown exception.\n";
-			saveCheckpoint();
-			continue;
-		}
-		saveCheckpoint();
-	}
+	cout << "[INFO] Starting " << worker_count << " crawler worker thread(s).\n";
+	engine.run(worker_count);
+	engine.shutdown();
+	saveCheckpoint();
 
 	if (db_store) {
 		auto pendingURLs = engine.getPendingURLs();
@@ -362,6 +422,5 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 		cout << "[RESUME] Saved " << pendingURLs.size() << " pending URLs to database.\n";
 	}
 	
-	engine.shutdown();
 	log_utils::close_output_streams();
 }
