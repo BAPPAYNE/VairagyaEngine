@@ -7,8 +7,10 @@
 #include <atomic>
 #include <csignal>
 #include <vector>
+#include <algorithm>
 #ifdef _WIN32
 #include <windows.h>
+#include <boost/url.hpp>
 #endif
 
 #include "url/normalize.h"
@@ -23,17 +25,18 @@
 #include "utils/config.h"
 #include "storage/rocksdb_store.h"
 #include "pipeline/doc_core_builder.h"
-#include <boost/url.hpp>
+#include "api/search_api.h"
 
 using namespace std;
 using namespace argparse;
 
 atomic<bool> g_running{ true };
+atomic<bool> g_shutdown_message_printed{ false };
 ArgumentParser program("VairagyaEngine");
 
 // Inline helper to initialize database schema and CFs
-inline std::shared_ptr<storage::RocksDBStore> initDatabase(const std::string& db_path) {
-    auto store = std::make_shared<storage::RocksDBStore>();
+inline shared_ptr<storage::RocksDBStore> initDatabase(const string& db_path) {
+    auto store = make_shared<storage::RocksDBStore>();
     if (!store->open(db_path)) {
         return nullptr;
     }
@@ -44,9 +47,12 @@ inline std::shared_ptr<storage::RocksDBStore> initDatabase(const std::string& db
 // Signal Handlers
 #ifdef _WIN32
 BOOL WINAPI consoleHandler(DWORD signal) {
-    if (signal == CTRL_C_EVENT) {
-        cout << "\n[SHUTDOWN] Ctrl+C received\n";
-        g_running = false;
+    if (signal == CTRL_C_EVENT || signal == CTRL_CLOSE_EVENT || signal == CTRL_BREAK_EVENT) {
+        bool expected = false;
+        if (g_shutdown_message_printed.compare_exchange_strong(expected, true)) {
+            cout << "\n[SHUTDOWN] Ctrl+C received\n";
+        }
+        g_running.store(false);
         return TRUE;
     }
     return FALSE;
@@ -54,8 +60,7 @@ BOOL WINAPI consoleHandler(DWORD signal) {
 #endif
 
 void handle_sigint(int) {
-    cout << "\n[SHUTDOWN] SIGINT received\n";
-    g_running = false;
+    g_running.store(false);
 }
 
 // Utility Functions
@@ -88,7 +93,11 @@ inline void setupArgumentParser() {
     program.add_description("VairagyaEngine Web Crawler");
 
     // Mutually exclusive group for input source
-    auto& input_group = program.add_mutually_exclusive_group(true); // required
+    auto& input_group = program.add_mutually_exclusive_group(false);
+
+    program.add_argument("--mode")
+        .help("Runtime mode: crawler or api.")
+        .default_value(string("crawler"));
 
     input_group.add_argument("-d", "--domain")
         .help("Specify a single domain/URL to crawl.")
@@ -105,6 +114,11 @@ inline void setupArgumentParser() {
 
     input_group.add_argument("--resume-db")
         .help("Resume crawling from database frontier (load uncrawled/scheduled URLs from DB).")
+        .default_value(false)
+        .implicit_value(true);
+
+    input_group.add_argument("--remove-duplicates")
+        .help("Remove duplicate URL records and duplicate pending URLs from the RocksDB database, then exit.")
         .default_value(false)
         .implicit_value(true);
 
@@ -140,6 +154,16 @@ inline void setupArgumentParser() {
         .help("Path to the RocksDB database.")
         .default_value(string("vairagya_db"));
 
+    program.add_argument("-t", "--threads")
+        .help("Number of persistent crawler worker threads.")
+        .default_value(1)
+        .scan<'i', int>();
+
+    program.add_argument("--port")
+        .help("HTTP port for API mode.")
+        .default_value(8080)
+        .scan<'i', int>();
+
 }
 
 inline int parseArguments(int &argc, char *argv[]) {
@@ -153,9 +177,15 @@ inline int parseArguments(int &argc, char *argv[]) {
 
             static vector<string> defaultArgs = {
                 argv[0],
-                "-cd",
-                "-cl",
-                "-ir",
+                "--mode",
+                "api",
+				"--port",
+				"12345",
+                //"-cd",
+                //"-cl",
+                //"-ir",
+                //"-t",
+                //"30",
                 "-db",
                 "vairagya_db"
             };
@@ -230,9 +260,9 @@ inline void extractAllowedDomains(const vector<string>& seedUrls) {
     }
     
     for (const auto& url : seedUrls) {
-        std::string test_url = url;
+        string test_url = url;
         // Auto-prepend scheme if missing
-        if (test_url.find("://") == std::string::npos) {
+        if (test_url.find("://") == string::npos) {
             test_url = "http://" + test_url;
         }
         try {
@@ -260,14 +290,16 @@ inline void extractAllowedDomains(const vector<string>& seedUrls) {
 inline void displayCrawlerInfo(const vector<string>& seedUrls) {
     cout << "[INFO] Starting Crawler with " << seedUrls.size() << " seed URLs.\n";
     cout << "[INFO] Link extraction enabled: " << (crawl_links ? "Yes" : "No") << "\n";
+    cout << "[INFO] Worker threads: " << max(1, program.get<int>("--threads")) << "\n";
 }
 
 // Signal Handler Setup
 inline void setupSignalHandlers() {
 #ifdef _WIN32
     SetConsoleCtrlHandler(consoleHandler, TRUE);
-#endif
+#else
     signal(SIGINT, handle_sigint);
+#endif
 }
 
 int main(int argc, char *argv[])
@@ -287,6 +319,38 @@ int main(int argc, char *argv[])
     auto db = initDatabase(db_path);
     if (!db) {
         cerr << "[ERROR] Database initialization failed: " << db_path << endl;
+        return 1;
+    }
+
+    if (program.get<bool>("--remove-duplicates")) {
+        auto stats = db->removeDuplicateURLs();
+        cout << "[DEDUP] Removed duplicate document records: "
+             << stats.duplicate_doc_records_removed << "\n";
+        cout << "[DEDUP] Removed duplicate domain-index entries: "
+             << stats.duplicate_domain_index_entries_removed << "\n";
+        cout << "[DEDUP] Removed duplicate pending URLs: "
+             << stats.duplicate_pending_urls_removed << "\n";
+        if (stats.next_doc_id_repaired) {
+            cout << "[DEDUP] Repaired next_doc_id: " << stats.next_doc_id << "\n";
+        }
+        cout << "[EXIT] Duplicate cleanup complete\n";
+        return 0;
+    }
+
+    string mode = program.get<string>("--mode");
+    if (mode == "api") {
+        int requested_port = program.get<int>("--port");
+        if (requested_port <= 0 || requested_port > 65535) {
+            cerr << "[ERROR] Invalid API port: " << requested_port << endl;
+            return 1;
+        }
+
+        api::runSearchApi(db, static_cast<uint16_t>(requested_port));
+        return 0;
+    }
+
+    if (mode != "crawler") {
+        cerr << "[ERROR] Invalid mode: " << mode << ". Use 'crawler' or 'api'." << endl;
         return 1;
     }
 
@@ -321,11 +385,17 @@ int main(int argc, char *argv[])
         }
     }
 
+    if (seedUrls.empty()) {
+        cerr << "[ERROR] No crawler input specified. Use --domain, --list, --crawl-database, --resume-db, or --mode api." << endl;
+        return 1;
+    }
+
     // Extract allowed domains if same-domain mode is enabled
     extractAllowedDomains(seedUrls);
     displayCrawlerInfo(seedUrls);
 
-    crawler::runCrawler(seedUrls, db);
+    int requested_threads = max(1, program.get<int>("--threads"));
+    crawler::runCrawler(seedUrls, db, static_cast<size_t>(requested_threads));
 
     cout << "[EXIT] Crawler stopped cleanly\n";
     return 0;
