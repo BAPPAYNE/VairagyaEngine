@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <list>
 
+using namespace std;
+
 size_t Simhash::num_differing_bits(Simhash::hash_t a, Simhash::hash_t b)
 {
     size_t count(0);
@@ -16,10 +18,10 @@ size_t Simhash::num_differing_bits(Simhash::hash_t a, Simhash::hash_t b)
     return count;
 }
 
-Simhash::hash_t Simhash::compute(const std::vector<Simhash::hash_t>& hashes)
+Simhash::hash_t Simhash::compute(const vector<Simhash::hash_t>& hashes)
 {
     // Initialize counts to 0
-    std::vector<long> counts(Simhash::BITS, 0);
+    vector<long> counts(Simhash::BITS, 0);
 
     // Count the number of 1's, 0's in each position of the hashes
     for (auto it = hashes.begin(); it != hashes.end(); ++it)
@@ -55,11 +57,11 @@ Simhash::hash_t Simhash::compute(const std::vector<Simhash::hash_t>& hashes)
  * as a match, but (b, a) will not be emitted).
  */
 Simhash::matches_t Simhash::find_all(
-    std::unordered_set<Simhash::hash_t>& hashes,
+    unordered_set<Simhash::hash_t>& hashes,
     size_t number_of_blocks,
     size_t different_bits)
 {
-    std::vector<Simhash::hash_t> copy(hashes.begin(), hashes.end());
+    vector<Simhash::hash_t> copy(hashes.begin(), hashes.end());
     Simhash::matches_t results;
     auto permutations = Simhash::Permutation::create(number_of_blocks, different_bits);
     for (Simhash::Permutation& permutation : permutations)
@@ -68,8 +70,8 @@ Simhash::matches_t Simhash::find_all(
         auto op = [permutation](Simhash::hash_t h) -> Simhash::hash_t {
             return permutation.apply(h);
         };
-        std::transform(hashes.begin(), hashes.end(), copy.begin(), op);
-        std::sort(copy.begin(), copy.end());
+        transform(hashes.begin(), hashes.end(), copy.begin(), op);
+        sort(copy.begin(), copy.end());
 
         // Walk through and find regions that have the same prefix subject to the mask
         Simhash::hash_t mask = permutation.search_mask();
@@ -78,7 +80,7 @@ Simhash::matches_t Simhash::find_all(
         {
             // Find the end of the range that starts with this prefix
             Simhash::hash_t prefix = (*start) & mask;
-            std::vector<Simhash::hash_t>::iterator end = start;
+            vector<Simhash::hash_t>::iterator end = start;
             for (; end != copy.end() && (*end & mask) == prefix; ++end) { }
             
             // For all the hashes that are between start and end, consider them all
@@ -92,9 +94,9 @@ Simhash::matches_t Simhash::find_all(
                         Simhash::hash_t b_raw = permutation.reverse(*b);
                         // Insert the result keyed on the smaller of the two
                         results.insert(
-                            std::make_pair(
-                                std::min(a_raw, b_raw),
-                                std::max(a_raw, b_raw)));
+                            make_pair(
+                                min(a_raw, b_raw),
+                                max(a_raw, b_raw)));
                     }
                 }
             }
@@ -109,13 +111,13 @@ Simhash::matches_t Simhash::find_all(
 
 // O(E)
 Simhash::clusters_t Simhash::find_clusters(
-    std::unordered_set<Simhash::hash_t>& hashes,
+    unordered_set<Simhash::hash_t>& hashes,
     size_t number_of_blocks,
     size_t different_bits)
 {
     // Build up the edges of this graph
-    std::unordered_map<Simhash::hash_t, std::unordered_set<Simhash::hash_t> > nodes;
-    std::unordered_map<Simhash::hash_t, bool> visited;
+    unordered_map<Simhash::hash_t, unordered_set<Simhash::hash_t> > nodes;
+    unordered_map<Simhash::hash_t, bool> visited;
     for (const auto& match: find_all(hashes, number_of_blocks, different_bits))
     {
         nodes[match.first].insert(match.second);
@@ -138,7 +140,7 @@ Simhash::clusters_t Simhash::find_clusters(
         // If a node has not been visited, then start a cluster emanating from it.
         visited[node.first] = true;
         Simhash::cluster_t cluster({node.first});
-        std::list<Simhash::hash_t> frontier(node.second.begin(), node.second.end());
+        list<Simhash::hash_t> frontier(node.second.begin(), node.second.end());
         while (!frontier.empty())
         {
             // The first frontier node is part of the cluster

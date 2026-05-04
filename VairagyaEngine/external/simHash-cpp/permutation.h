@@ -5,6 +5,8 @@
 
 #include <vector>
 
+using namespace std;
+
 namespace Simhash {
     
     class Permutation {
@@ -13,20 +15,20 @@ namespace Simhash {
          * Create a vector of permutations necessary to do all simhash near-dup
          * detection.
          */
-        static std::vector<Permutation> create(size_t number_of_blocks,
+        static vector<Permutation> create(size_t number_of_blocks,
                                                size_t different_bits);
 
         /**
          * Generate combinations of length r from population.
          */
-        static std::vector<std::vector<hash_t> > choose(
-            const std::vector<hash_t>& population, size_t r);
+        static vector<vector<hash_t> > choose(
+            const vector<hash_t>& population, size_t r);
 
         /**
          * Construct a permutation from its permutation masks and the maximum
          * number of bits that may differ.
          */
-        Permutation(size_t different_bits, std::vector<hash_t>& masks);
+        Permutation(size_t different_bits, vector<hash_t>& masks);
 
         /**
          * Apply this permutation.
@@ -50,9 +52,9 @@ namespace Simhash {
          * _differing_bits_ blocks set to 1. */
         hash_t search_mask() const;
     private:
-        std::vector<hash_t> forward_masks;
-        std::vector<hash_t> reverse_masks;
-        std::vector<int> offsets;
+        vector<hash_t> forward_masks;
+        vector<hash_t> reverse_masks;
+        vector<int> offsets;
         hash_t search_mask_;
     };
 }

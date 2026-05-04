@@ -5,26 +5,28 @@
 #include <stdexcept>
 #include <vector>
 
+using namespace std;
+
 namespace Simhash {
 
-    std::vector<std::vector<hash_t> > Permutation::choose(
-            const std::vector<hash_t>& population, size_t r)
+    vector<vector<hash_t> > Permutation::choose(
+            const vector<hash_t>& population, size_t r)
     {
         // This algorithm is cribbed from python's itertools page.
         size_t n = population.size();
         if (r > n)
         {
-            throw std::invalid_argument("R cannot be greater than population size.");
+            throw invalid_argument("R cannot be greater than population size.");
         }
 
-        std::vector<size_t> indices(r);
+        vector<size_t> indices(r);
         for (size_t i = 0; i < r; ++i)
         {
             indices[i] = i;
         }
 
-        std::vector<std::vector<hash_t> > results;
-        std::vector<hash_t> result(r);
+        vector<vector<hash_t> > results;
+        vector<hash_t> result(r);
 
         for (size_t i = 0; i < r; ++i)
         {
@@ -60,27 +62,27 @@ namespace Simhash {
         }
     }
 
-    std::vector<Permutation> Permutation::create(size_t number_of_blocks,
+    vector<Permutation> Permutation::create(size_t number_of_blocks,
                                                  size_t different_bits)
     {
         if (number_of_blocks > Simhash::BITS)
         {
-            std::stringstream message;
+            stringstream message;
             message << "Number of blocks must not exceed " << sizeof(hash_t) * 8;
-            throw std::invalid_argument(message.str());
+            throw invalid_argument(message.str());
         }
 
         if (number_of_blocks <= different_bits)
         {
-            std::stringstream message;
+            stringstream message;
             message << "Number of blocks (" << number_of_blocks
                     << ") must be greater than different_bits (" << different_bits
                     << ")";
-            throw std::invalid_argument(message.str());
+            throw invalid_argument(message.str());
         }
 
         /* These are the blocks, in mask form. */
-        std::vector<hash_t> blocks;
+        vector<hash_t> blocks;
         for (size_t i = 0; i < number_of_blocks; ++i)
         {
             hash_t mask(0);
@@ -97,8 +99,8 @@ namespace Simhash {
         size_t count = static_cast<size_t>(number_of_blocks - different_bits);
 
         /* All the mask choices. */
-        std::vector<Permutation> results;
-        for (std::vector<hash_t>& choice : choose(blocks, count))
+        vector<Permutation> results;
+        for (vector<hash_t>& choice : choose(blocks, count))
         {
             // Add the remaining masks -- those that were not part of choice
             for (hash_t block : blocks)
@@ -115,7 +117,7 @@ namespace Simhash {
         return results;
     }
     
-    Permutation::Permutation(size_t different_bits, std::vector<hash_t>& masks)
+    Permutation::Permutation(size_t different_bits, vector<hash_t>& masks)
         : forward_masks(masks)
         , reverse_masks()
         , offsets()
@@ -124,12 +126,12 @@ namespace Simhash {
         int j(0), i(0), width(0); // counters
 
         // All of these are O(forward_masks)
-        std::vector<size_t> widths;
+        vector<size_t> widths;
         widths.reserve(forward_masks.size());
         reverse_masks.reserve(forward_masks.size());
         offsets.reserve(forward_masks.size());
 
-        std::vector<hash_t>::iterator mask_it(forward_masks.begin());
+        vector<hash_t>::iterator mask_it(forward_masks.begin());
 
         /* To more easily and reasonably-efficiently calculate the permutations
          * of each of the hashes we insert, and since each block is just
@@ -198,7 +200,7 @@ namespace Simhash {
          *
          * After this, width should hold the number of bits that are in all but
          * the last d blocks */
-        std::vector<size_t>::iterator width_it(widths.begin());
+        vector<size_t>::iterator width_it(widths.begin());
         for (width = 0; different_bits < widths.size(); ++different_bits, ++width_it)
         {
             width += *width_it;
@@ -212,8 +214,8 @@ namespace Simhash {
 
     hash_t Permutation::apply(hash_t hash) const
     {
-        std::vector<hash_t>::const_iterator masks_it(forward_masks.begin());
-        std::vector<int   >::const_iterator offset_it(     offsets.begin());
+        vector<hash_t>::const_iterator masks_it(forward_masks.begin());
+        vector<int   >::const_iterator offset_it(     offsets.begin());
 
         hash_t result(0);
         for (; masks_it != forward_masks.end(); ++masks_it, ++offset_it)
@@ -232,8 +234,8 @@ namespace Simhash {
 
     hash_t Permutation::reverse(hash_t hash) const
     {
-        std::vector<hash_t>::const_iterator masks_it(reverse_masks.begin());
-        std::vector<int   >::const_iterator offset_it(     offsets.begin());
+        vector<hash_t>::const_iterator masks_it(reverse_masks.begin());
+        vector<int   >::const_iterator offset_it(     offsets.begin());
 
         hash_t result(0);
         for (; masks_it != reverse_masks.end(); ++masks_it, ++offset_it)
