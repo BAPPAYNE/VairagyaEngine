@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
+#include <mutex>
 
 using namespace storage;
 
@@ -41,6 +42,7 @@ private:
 	HostStateStore& hostStore_;
 
 	unordered_map<string, RobotsRules> cache;
+	mutable mutex cache_mutex_;
 };
 
 #endif // ROBOTS_MANAGER
