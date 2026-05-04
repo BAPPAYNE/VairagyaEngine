@@ -8,6 +8,7 @@
 #include <string>
 #include <iostream>
 #include <ctime>
+#include <chrono>
 
 using namespace std;
 
@@ -39,6 +40,11 @@ namespace crawler {
 		ProcessedURL pURL = processURL(inputURL);
 		if (pURL.status != URLStatus::ACCEPTED_URL) {
 			cout << "[DROP] " << inputURL << " status=" << (int)pURL.status << "\n";
+			return;
+		}
+
+		unique_lock<mutex> lock(mutex_);
+		if (!accepting_work_) {
 			return;
 		}
 		crawl_stats.discovered++;
@@ -85,11 +91,52 @@ namespace crawler {
 			depth,
 			referrer
 			});
+		lock.unlock();
+		cv_.notify_one();
 	}
 
 
 
 	optional<FrontierItem> Frontier::pop() {
+		unique_lock<mutex> lock(mutex_);
+		auto item = popLocked();
+		if (item) {
+			active_workers_++;
+		}
+		return item;
+	}
+
+	optional<FrontierItem> Frontier::popWait(const atomic<bool>& running_flag) {
+		unique_lock<mutex> lock(mutex_);
+		while (running_flag.load() && accepting_work_ && !hasQueuedURLLocked() && active_workers_ > 0) {
+			cv_.wait_for(lock, chrono::milliseconds(250));
+		}
+		if (!running_flag.load() || !accepting_work_ || !hasQueuedURLLocked()) {
+			return nullopt;
+		}
+
+		auto item = popLocked();
+		if (item) {
+			active_workers_++;
+		}
+		return item;
+	}
+
+	bool Frontier::empty() const {
+		lock_guard<mutex> lock(mutex_);
+		return !hasQueuedURLLocked();
+	}
+
+	bool Frontier::hasQueuedURLLocked() const {
+		for (auto& [host, state] : hostQueue) {
+			if (!state.urlQueue.empty()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	optional<FrontierItem> Frontier::popLocked() {
 		for (auto& [host, state] : hostQueue) {
 			if (!state.urlQueue.empty()) {
 				FrontierItem item = state.urlQueue.top();
@@ -98,15 +145,6 @@ namespace crawler {
 			}
 		}
 		return nullopt;
-	}
-
-	bool Frontier::empty() const {
-		for (auto& [host, state] : hostQueue) {
-			if (!state.urlQueue.empty()) {
-				return false;
-			}
-		}
-		return true;
 	}
 
 	/*
@@ -133,10 +171,17 @@ namespace crawler {
 			return;
 		}
 
+		unique_lock<mutex> lock(mutex_);
+		if (!accepting_work_) {
+			return;
+		}
 		hostQueue[host].urlQueue.push(item);
+		lock.unlock();
+		cv_.notify_one();
 	}
 
 	void Frontier::markFetched(const string& url, uint16_t http_code) {
+		lock_guard<mutex> lock(mutex_);
 		auto& state = urlStates[url];
 
 		state.fetch_status = net::FetchStatus::SUCCESS;
@@ -149,6 +194,7 @@ namespace crawler {
 
 
 	void Frontier::markFailed(const string& url, uint16_t http_code) {
+		lock_guard<mutex> lock(mutex_);
 		auto& state = urlStates[url];
 
 		state.fetch_status = net::FetchStatus::FAILED;
@@ -161,6 +207,7 @@ namespace crawler {
 
 	void Frontier::markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code)
 	{
+		unique_lock<mutex> lock(mutex_);
 		auto& state = urlStates[url];
 
 		state.fetch_status = fetch_status;
@@ -169,11 +216,29 @@ namespace crawler {
 		state.last_fetch_ts = time(nullptr);
 		if (state.retry_count < MAX_RETRY_COUNT) {
 			crawl_stats.retried++;
-			push(url);
+			ProcessedURL pURL = processURL(url);
+			if (pURL.status == URLStatus::ACCEPTED_URL) {
+				string host = extractHost(pURL.normalized);
+				if (!host.empty()) {
+					state.fetch_status = net::FetchStatus::UNKNOWN_ERROR;
+					if (accepting_work_) {
+						hostQueue[host].urlQueue.push({
+							pURL.normalized,
+							pURL.priority,
+							state.retry_count,
+							0,
+							"RETRY"
+						});
+					}
+				}
+			}
 		}
+		lock.unlock();
+		cv_.notify_one();
 	}
 	 
 	void Frontier::markDisallowed(const string& url) {
+		lock_guard<mutex> lock(mutex_);
 		auto& state = urlStates[url];
 		state.normalized_url = url;
 		state.fetch_status = net::FetchStatus::ROBOTS_DISALLOWED;
@@ -184,6 +249,7 @@ namespace crawler {
 	}
 
 	vector<string> Frontier::getSuccessfulURLs() const {
+		lock_guard<mutex> lock(mutex_);
 		vector<string> successURLs;
 		for (const auto& kv : urlStates) {
 			const auto& state = kv.second;
@@ -195,6 +261,7 @@ namespace crawler {
 	}
 
 	vector<string> Frontier::getPendingURLs() const {
+		lock_guard<mutex> lock(mutex_);
 		vector<string> pendingURLs;
 		unordered_set<string> seen;
 		for (const auto& [host, state] : hostQueue) {
@@ -213,6 +280,27 @@ namespace crawler {
 			}
 		}
 		return pendingURLs;
+	}
+
+	void Frontier::completeWork() {
+		unique_lock<mutex> lock(mutex_);
+		if (active_workers_ > 0) {
+			active_workers_--;
+		}
+		lock.unlock();
+		cv_.notify_all();
+	}
+
+	void Frontier::shutdown() {
+		unique_lock<mutex> lock(mutex_);
+		accepting_work_ = false;
+		lock.unlock();
+		cv_.notify_all();
+	}
+
+	CrawlStats Frontier::stats() const {
+		lock_guard<mutex> lock(mutex_);
+		return crawl_stats;
 	}
 	
 }
