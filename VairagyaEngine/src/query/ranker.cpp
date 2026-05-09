@@ -6,6 +6,7 @@
 #include <cmath>
 #include <ctime>
 #include <unordered_map>
+#include <unordered_set>
 
 using namespace std;
 
@@ -23,6 +24,8 @@ namespace search {
         const IndexSearcher& index
     ) const {
         unordered_map<uint64_t, double> scores;
+        unordered_map<uint64_t, uint32_t> matched_terms;
+        unordered_set<uint64_t> candidate_set(candidates.begin(), candidates.end());
         static QueryProcessor processor;
         const time_t now = time(nullptr);
 
@@ -51,23 +54,40 @@ namespace search {
                 );
 
                 if (posting.title_frequency > 0) {
-                    score += 2.0 + (0.5 * posting.title_frequency);
+                    score += 3.5 + (0.8 * posting.title_frequency);
+                }
+                if (posting.description_frequency > 0) {
+                    score += 1.5 + (0.35 * posting.description_frequency);
                 }
                 if (posting.url_frequency > 0) {
                     score += 0.75 + (0.25 * posting.url_frequency);
                 }
 
                 scores[posting.doc_id] += score;
+                ++matched_terms[posting.doc_id];
             }
         }
 
-        for (const auto doc_id : candidates) {
+        vector<uint64_t> docs_to_boost;
+        docs_to_boost.reserve(scores.size());
+        for (const auto& [doc_id, score] : scores) {
+            if (candidate_set.empty() || candidate_set.find(doc_id) != candidate_set.end()) {
+                docs_to_boost.push_back(doc_id);
+            }
+        }
+
+        for (const auto doc_id : docs_to_boost) {
             const auto* document = index.document(doc_id);
             if (!document) {
                 continue;
             }
 
             auto& score = scores[doc_id];
+            const double coverage = query.tokens.empty()
+                ? 0.0
+                : static_cast<double>(matched_terms[doc_id]) / static_cast<double>(query.tokens.size());
+            score += coverage * 2.0;
+
             if (!query.normalized.empty()) {
                 const string title = processor.normalize(document->title);
                 const string body = processor.normalize(document->snippet_source);
@@ -101,13 +121,24 @@ namespace search {
             }
 
             score += log1p(static_cast<double>(document->click_count)) * 0.75;
-            score += max(0.0f, document->quality_score);
+            score += log1p(static_cast<double>(document->inbound_links_count)) * 0.45;
+            score += static_cast<double>(max(0.0f, document->pagerank_score)) * 2.0;
+            score += max(0.0f, document->quality_score) * 1.25;
+            score -= max(0.0f, document->spam_score) * 1.5;
+            score -= min(1.5, max(0, document->crawl_depth) * 0.10);
+
+            if (document->document_length < 30) {
+                score -= 1.0;
+            }
+            if (document->outbound_links_count > 200 && document->inbound_links_count == 0) {
+                score -= 0.75;
+            }
         }
 
         vector<RankedDocument> ranked;
         ranked.reserve(scores.size());
         for (const auto& [doc_id, score] : scores) {
-            if (score > 0.01) {
+            if ((candidate_set.empty() || candidate_set.find(doc_id) != candidate_set.end()) && score > 0.01) {
                 ranked.push_back({doc_id, score});
             }
         }
