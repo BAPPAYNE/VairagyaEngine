@@ -104,8 +104,13 @@ namespace api {
                     {"doc_id", result.doc_id},
                     {"title", result.title},
                     {"url", result.url},
+                    {"display_url", result.display_url},
+                    {"favicon_url", result.favicon_url},
+                    {"language", result.language},
                     {"snippet", result.snippet},
-                    {"score", result.score}
+                    {"score", result.score},
+                    {"last_fetched_time", result.last_fetched_time},
+                    {"quality_score", result.quality_score}
                 });
             }
 
@@ -160,6 +165,24 @@ namespace api {
 
                 auto response = engine.search(raw_query, page, limit);
                 return crow::response(200, "application/json", toJson(response).dump());
+            }
+        );
+
+        CROW_ROUTE(app, "/health").methods(crow::HTTPMethod::GET)(
+            [&engine]() {
+                return crow::response(200, "application/json", nlohmann::json({
+                    {"ok", true},
+                    {"searchable_documents", engine.documentCount()}
+                }).dump());
+            }
+        );
+
+        CROW_ROUTE(app, "/stats").methods(crow::HTTPMethod::GET)(
+            [&engine]() {
+                return crow::response(200, "application/json", nlohmann::json({
+                    {"documents", engine.documentCount()},
+                    {"cache", "lru"}
+                }).dump());
             }
         );
 
