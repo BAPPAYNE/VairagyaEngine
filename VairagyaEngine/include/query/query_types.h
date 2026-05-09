@@ -2,6 +2,7 @@
 #define QUERY_TYPES_H
 
 #include <cstdint>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -19,8 +20,13 @@ namespace search {
         uint64_t doc_id = 0;
         string title;
         string url;
+        string display_url;
+        string favicon_url;
+        string language;
         string snippet;
         double score = 0.0;
+        time_t last_fetched_time = 0;
+        float quality_score = 0.0f;
     };
 
     struct SearchResponse {
