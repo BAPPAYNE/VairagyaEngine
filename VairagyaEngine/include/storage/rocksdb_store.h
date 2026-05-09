@@ -29,6 +29,7 @@ namespace storage {
         FetchMeta fetch_meta;
         ParsedContent parsed_content;
         ContentMeta content_meta;
+        LinkData link_data;
         QualitySignals quality_signals;
         Presentation presentation;
         ControlFlags control_flags;
@@ -54,6 +55,13 @@ namespace storage {
         void savePendingURLs(const vector<string>& urls);
         vector<string> loadPendingURLs();
         vector<string> getUrlsBatch(const uint64_t limit = 10000);
+        void recordCrawlResult(
+            const string& url_hash,
+            const string& normalized_url,
+            int http_status,
+            const string& content_hash,
+            bool content_changed
+        );
         DuplicateRemovalStats removeDuplicateURLs();
         unordered_map<uint64_t, uint64_t> loadClickCounts();
         uint64_t incrementClickCount(uint64_t doc_id);

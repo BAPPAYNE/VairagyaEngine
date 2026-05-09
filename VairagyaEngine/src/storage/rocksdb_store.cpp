@@ -4,6 +4,9 @@
 #include <iostream>
 #include <vector>
 #include <limits>
+#include <algorithm>
+#include <cmath>
+#include <ctime>
 #include <unordered_map>
 #include <unordered_set>
 #include <rocksdb/options.h>
@@ -35,6 +38,111 @@ namespace storage {
             } catch (...) {
                 return 0;
             }
+        }
+
+        struct RecrawlState {
+            string normalized_url;
+            uint64_t last_crawl_ts = 0;
+            uint64_t next_crawl_ts = 0;
+            uint32_t failure_count = 0;
+            double change_rate = 0.0;
+            string last_content_hash;
+            int last_http_status = 0;
+            int priority_score = 0;
+        };
+
+        struct RecrawlCandidate {
+            string normalized_url;
+            string url_hash;
+            uint64_t last_crawl_ts = 0;
+            uint64_t next_crawl_ts = 0;
+            double score = 0.0;
+        };
+
+        string recrawlKey(const string& url_hash) {
+            return "recrawl:" + url_hash;
+        }
+
+        uint64_t clampInterval(uint64_t value, uint64_t min_value, uint64_t max_value) {
+            return max(min_value, min(value, max_value));
+        }
+
+        bool isRetryableStatus(int status) {
+            return status == 0 || status == 408 || status == 429 || status >= 500;
+        }
+
+        uint64_t computeBaseRecrawlInterval(double change_rate, int priority_score) {
+            constexpr uint64_t one_hour = 60 * 60;
+            constexpr uint64_t one_week = 7 * 24 * one_hour;
+
+            double interval = static_cast<double>(one_week);
+            interval -= static_cast<double>(one_week - one_hour) * clamp(change_rate, 0.0, 1.0);
+            interval *= 1.0 - (clamp(priority_score, 0, 100) / 100.0 * 0.60);
+            return clampInterval(static_cast<uint64_t>(interval), one_hour, one_week);
+        }
+
+        uint64_t computeFailureBackoff(uint32_t failure_count) {
+            constexpr uint64_t one_hour = 60 * 60;
+            constexpr uint64_t one_day = 24 * one_hour;
+            const uint32_t capped = min<uint32_t>(failure_count, 8);
+            return clampInterval(one_hour << capped, one_hour, 14 * one_day);
+        }
+
+        RecrawlState parseRecrawlState(const string& data) {
+            RecrawlState state;
+            auto parsed = json::parse(data, nullptr, false);
+            if (parsed.is_discarded() || !parsed.is_object()) {
+                return state;
+            }
+
+            state.normalized_url = parsed.value("normalized_url", "");
+            state.last_crawl_ts = parsed.value("last_crawl_ts", uint64_t{0});
+            state.next_crawl_ts = parsed.value("next_crawl_ts", uint64_t{0});
+            state.failure_count = parsed.value("failure_count", uint32_t{0});
+            state.change_rate = parsed.value("change_rate", 0.0);
+            state.last_content_hash = parsed.value("last_content_hash", "");
+            state.last_http_status = parsed.value("last_http_status", 0);
+            state.priority_score = parsed.value("priority_score", 0);
+            return state;
+        }
+
+        string serializeRecrawlState(const RecrawlState& state) {
+            json data = {
+                {"normalized_url", state.normalized_url},
+                {"last_crawl_ts", state.last_crawl_ts},
+                {"next_crawl_ts", state.next_crawl_ts},
+                {"failure_count", state.failure_count},
+                {"change_rate", state.change_rate},
+                {"last_content_hash", state.last_content_hash},
+                {"last_http_status", state.last_http_status},
+                {"priority_score", state.priority_score}
+            };
+            return data.dump();
+        }
+
+        int urlPriorityScore(const string& url) {
+            int score = 50;
+            const auto slash_count = static_cast<int>(count(url.begin(), url.end(), '/'));
+            const int depth = max(0, slash_count - 2);
+            score -= depth * 5;
+
+            const string lower = [&]() {
+                string copy = url;
+                transform(copy.begin(), copy.end(), copy.begin(), ::tolower);
+                return copy;
+            }();
+
+            if (lower.ends_with("/") || lower.ends_with(".html") || lower.ends_with(".htm")) {
+                score += 10;
+            }
+            if (lower.ends_with(".css") || lower.ends_with(".js") || lower.ends_with(".png") ||
+                lower.ends_with(".jpg") || lower.ends_with(".jpeg") || lower.ends_with(".svg") ||
+                lower.ends_with(".gif") || lower.ends_with(".ico") || lower.ends_with(".woff") ||
+                lower.ends_with(".woff2")) {
+                score -= 25;
+            }
+
+            return clamp(score, 0, 100);
         }
     }
 
@@ -194,94 +302,191 @@ namespace storage {
         lock_guard<mutex> lock(mutex_);
 
         vector<string> urls;
-        urls.reserve(static_cast<size_t>(limit));
+        vector<RecrawlCandidate> candidates;
+        candidates.reserve(static_cast<size_t>(limit));
 
         if (!db_ || limit == 0)
             return urls;
 
-        auto domain_it = handles_.find(CF_DOMAIN_INDEX);
         auto doc_core_it = handles_.find(CF_DOC_CORE);
-        if (domain_it == handles_.end() || doc_core_it == handles_.end())
+        auto fetch_meta_it = handles_.find(CF_FETCH_META);
+        auto quality_it = handles_.find(CF_QUALITY);
+        auto content_meta_it = handles_.find(CF_CONTENT_META);
+        auto default_it = handles_.find(rocksdb::kDefaultColumnFamilyName);
+        if (doc_core_it == handles_.end() || fetch_meta_it == handles_.end() ||
+            quality_it == handles_.end() || content_meta_it == handles_.end() ||
+            default_it == handles_.end()) {
             return urls;
-
-        const string cursor_key = "__scan_cursor__";
-        string last_key;
-
-        // load previous cursor
-        auto status = db_->Get(
-            rocksdb::ReadOptions(),
-            handles_[rocksdb::kDefaultColumnFamilyName],
-            cursor_key,
-            &last_key
-        );
+        }
 
         rocksdb::ReadOptions ro;
-        ro.fill_cache = false;          // don't pollute block cache
-        ro.total_order_seek = false;
-        ro.prefix_same_as_start = true;
+        ro.fill_cache = false;
+        ro.verify_checksums = false;
+        ro.readahead_size = 4 << 20;
 
-        unique_ptr<rocksdb::Iterator> it(
-            db_->NewIterator(ro, domain_it->second)
-        );
+        const uint64_t now = static_cast<uint64_t>(time(nullptr));
+        unique_ptr<rocksdb::Iterator> it(db_->NewIterator(ro, doc_core_it->second));
 
-        if (status.ok() && !last_key.empty()) {
-            it->Seek(last_key);
-            if (it->Valid() && it->key().ToString() == last_key)
-                it->Next(); // continue after cursor
-        }
-        else {
-            it->Seek("d:");
-        }
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+            const string url_hash = it->key().ToString();
 
-        string last_processed;
-
-        for (; it->Valid() && urls.size() < limit; it->Next()) {
-            auto key = it->key().ToString();
-
-            if (key.rfind("d:", 0) != 0)
-                break; // prefix ended
-
-            const string url_hash = it->value().ToString();
-            string doc_core_json;
-            auto doc_status = db_->Get(
-                rocksdb::ReadOptions(),
-                doc_core_it->second,
-                url_hash,
-                &doc_core_json
+            auto doc_json = json::parse(
+                it->value().data(),
+                it->value().data() + it->value().size(),
+                nullptr,
+                false
             );
+            if (doc_json.is_discarded()) {
+                continue;
+            }
 
-            if (doc_status.ok() && !doc_core_json.empty()) {
+            DocCore doc;
+            try {
+                doc = doc_json.get<DocCore>();
+            } catch (...) {
+                continue;
+            }
+
+            if (doc.normalized_url.empty()) {
+                continue;
+            }
+
+            RecrawlState state;
+            string recrawl_json;
+            const auto recrawl_status = db_->Get(ro, default_it->second, recrawlKey(url_hash), &recrawl_json);
+            if (recrawl_status.ok() && !recrawl_json.empty()) {
+                state = parseRecrawlState(recrawl_json);
+            }
+
+            FetchMeta fetch;
+            string fetch_json;
+            const auto fetch_status = db_->Get(ro, fetch_meta_it->second, url_hash, &fetch_json);
+            if (fetch_status.ok() && !fetch_json.empty()) {
                 try {
-                    auto doc = json::parse(doc_core_json).get<DocCore>();
-                    if (!doc.normalized_url.empty()) {
-                        urls.emplace_back(doc.normalized_url);
-                    }
+                    fetch = json::parse(fetch_json).get<FetchMeta>();
                 } catch (...) {
-                    // Skip malformed doc_core records and continue scanning.
                 }
             }
-            last_processed = key;
+
+            QualitySignals quality;
+            string quality_json;
+            const auto quality_status = db_->Get(ro, quality_it->second, url_hash, &quality_json);
+            if (quality_status.ok() && !quality_json.empty()) {
+                try {
+                    quality = json::parse(quality_json).get<QualitySignals>();
+                } catch (...) {
+                }
+            }
+
+            if (state.normalized_url.empty()) {
+                state.normalized_url = doc.normalized_url;
+            }
+            if (state.last_crawl_ts == 0 && fetch.last_fetched_time > 0) {
+                state.last_crawl_ts = static_cast<uint64_t>(fetch.last_fetched_time);
+            }
+            if (state.change_rate <= 0.0 && quality.update_frequency > 0.0f) {
+                state.change_rate = clamp(static_cast<double>(quality.update_frequency) / 10.0, 0.0, 1.0);
+            }
+            if (state.priority_score == 0) {
+                state.priority_score = fetch.crawl_priority > 0 ? fetch.crawl_priority : urlPriorityScore(doc.normalized_url);
+            }
+            if (state.last_http_status == 0) {
+                state.last_http_status = fetch.fetch_status_code;
+            }
+            if (state.next_crawl_ts == 0) {
+                const uint64_t interval = isRetryableStatus(state.last_http_status)
+                    ? computeFailureBackoff(max<uint32_t>(state.failure_count, 1))
+                    : computeBaseRecrawlInterval(state.change_rate, state.priority_score);
+                state.next_crawl_ts = state.last_crawl_ts == 0 ? 0 : state.last_crawl_ts + interval;
+            }
+
+            if (state.next_crawl_ts > now) {
+                continue;
+            }
+
+            const uint64_t age = state.last_crawl_ts == 0 ? now : now - min(state.last_crawl_ts, now);
+            const uint64_t overdue = state.next_crawl_ts == 0 ? age : now - min(state.next_crawl_ts, now);
+            const double freshness_score = min(40.0, static_cast<double>(overdue) / 3600.0);
+            const double lru_score = min(25.0, static_cast<double>(age) / 86400.0);
+            const double change_score = clamp(state.change_rate, 0.0, 1.0) * 30.0;
+            const double importance_score = clamp(state.priority_score, 0, 100) * 0.45;
+            const double failure_penalty = state.failure_count > 0 ? min(25.0, state.failure_count * 5.0) : 0.0;
+
+            candidates.push_back({
+                doc.normalized_url,
+                url_hash,
+                state.last_crawl_ts,
+                state.next_crawl_ts,
+                importance_score + freshness_score + lru_score + change_score - failure_penalty
+            });
         }
 
-        // save next cursor
-        if (!last_processed.empty()) {
-            db_->Put(
-                rocksdb::WriteOptions(),
-                handles_[rocksdb::kDefaultColumnFamilyName],
-                cursor_key,
-                last_processed
-            );
-        }
-        else {
-            // reached end, reset cursor
-            db_->Delete(
-                rocksdb::WriteOptions(),
-                handles_[rocksdb::kDefaultColumnFamilyName],
-                cursor_key
-            );
+        sort(candidates.begin(), candidates.end(), [](const RecrawlCandidate& left, const RecrawlCandidate& right) {
+            if (left.score != right.score) {
+                return left.score > right.score;
+            }
+            return left.last_crawl_ts < right.last_crawl_ts;
+        });
+
+        urls.reserve(static_cast<size_t>(min<uint64_t>(limit, candidates.size())));
+        for (const auto& candidate : candidates) {
+            if (urls.size() >= limit) {
+                break;
+            }
+            urls.push_back(candidate.normalized_url);
         }
 
+        cout << "[RECRAWL] Selected " << urls.size() << " due URL(s) from "
+             << candidates.size() << " due candidate(s).\n";
         return urls;
+    }
+
+    void RocksDBStore::recordCrawlResult(
+        const string& url_hash,
+        const string& normalized_url,
+        int http_status,
+        const string& content_hash,
+        bool content_changed
+    ) {
+        lock_guard<mutex> lock(mutex_);
+        if (!db_ || url_hash.empty()) {
+            return;
+        }
+
+        auto default_it = handles_.find(rocksdb::kDefaultColumnFamilyName);
+        if (default_it == handles_.end()) {
+            return;
+        }
+
+        RecrawlState state;
+        string data;
+        const string key = recrawlKey(url_hash);
+        auto status = db_->Get(rocksdb::ReadOptions(), default_it->second, key, &data);
+        if (status.ok() && !data.empty()) {
+            state = parseRecrawlState(data);
+        }
+
+        const uint64_t now = static_cast<uint64_t>(time(nullptr));
+        state.normalized_url = normalized_url;
+        state.last_crawl_ts = now;
+        state.last_http_status = http_status;
+        state.priority_score = urlPriorityScore(normalized_url);
+
+        if (isRetryableStatus(http_status)) {
+            state.failure_count++;
+            state.next_crawl_ts = now + computeFailureBackoff(state.failure_count);
+        } else {
+            state.failure_count = 0;
+            const double sample = content_changed ? 1.0 : 0.0;
+            state.change_rate = (state.change_rate * 0.75) + (sample * 0.25);
+            state.next_crawl_ts = now + computeBaseRecrawlInterval(state.change_rate, state.priority_score);
+        }
+
+        if (!content_hash.empty()) {
+            state.last_content_hash = content_hash;
+        }
+
+        db_->Put(rocksdb::WriteOptions(), default_it->second, key, serializeRecrawlState(state));
     }
 
     DuplicateRemovalStats RocksDBStore::removeDuplicateURLs() {
@@ -546,13 +751,17 @@ namespace storage {
         auto fetch_meta_it = handles_.find(CF_FETCH_META);
         auto parsed_content_it = handles_.find(CF_PARSED_CONTENT);
         auto content_meta_it = handles_.find(CF_CONTENT_META);
+        auto link_graph_it = handles_.find(CF_LINK_GRAPH);
         auto quality_it = handles_.find(CF_QUALITY);
+        auto presentation_it = handles_.find(CF_PRESENTATION);
         auto control_it = handles_.find(CF_CONTROL);
         if (doc_core_it == handles_.end() ||
             fetch_meta_it == handles_.end() ||
             parsed_content_it == handles_.end() ||
             content_meta_it == handles_.end() ||
+            link_graph_it == handles_.end() ||
             quality_it == handles_.end() ||
+            presentation_it == handles_.end() ||
             control_it == handles_.end()) {
             return;
         }
@@ -567,7 +776,9 @@ namespace storage {
             fetch_meta_it->second,
             parsed_content_it->second,
             content_meta_it->second,
+            link_graph_it->second,
             quality_it->second,
+            presentation_it->second,
             control_it->second
         };
         vector<rocksdb::Slice> keys;
@@ -625,14 +836,28 @@ namespace storage {
                 }
 
                 if (statuses[3].ok() && !values[3].empty()) {
-                    auto quality_json = json::parse(values[3], nullptr, false);
+                    auto link_json = json::parse(values[3], nullptr, false);
+                    if (!link_json.is_discarded()) {
+                        record.link_data = link_json.get<LinkData>();
+                    }
+                }
+
+                if (statuses[4].ok() && !values[4].empty()) {
+                    auto quality_json = json::parse(values[4], nullptr, false);
                     if (!quality_json.is_discarded()) {
                         record.quality_signals = quality_json.get<QualitySignals>();
                     }
                 }
 
-                if (statuses[4].ok() && !values[4].empty()) {
-                    auto control_json = json::parse(values[4], nullptr, false);
+                if (statuses[5].ok() && !values[5].empty()) {
+                    auto presentation_json = json::parse(values[5], nullptr, false);
+                    if (!presentation_json.is_discarded()) {
+                        record.presentation = presentation_json.get<Presentation>();
+                    }
+                }
+
+                if (statuses[6].ok() && !values[6].empty()) {
+                    auto control_json = json::parse(values[6], nullptr, false);
                     if (!control_json.is_discarded()) {
                         record.control_flags = control_json.get<ControlFlags>();
                     }
