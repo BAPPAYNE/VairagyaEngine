@@ -56,13 +56,6 @@ add_executable(VairagyaEngine
     VairagyaEngine/src/pipeline/control_flags_builder.cpp
     VairagyaEngine/external/simHash-cpp/simhash.cpp
     VairagyaEngine/external/simHash-cpp/permutation.cpp
-    VairagyaEngine/src/query/index_searcher.cpp
-    VairagyaEngine/src/query/query_engine.cpp
-    VairagyaEngine/src/query/ranker.cpp
-    VairagyaEngine/src/query/query_processor.cpp
-    VairagyaEngine/src/query/result_builder.cpp
-    VairagyaEngine/src/query/snippet_generator.cpp
-    VairagyaEngine/src/api/search_api.cpp
 )
 
 set_target_properties(VairagyaEngine PROPERTIES
