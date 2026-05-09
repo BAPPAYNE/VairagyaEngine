@@ -188,6 +188,19 @@ namespace crawler {
                                                                result.content.size(), "", "", 
                                                                item.depth, item.referrer_url);
 				ContentMeta content = ContentMetaBuilder::build(parsed.clean_text);
+				string previous_content_hash;
+				if (db_store) {
+					auto existing_content_json = db_store->get(storage::CF_CONTENT_META, doc.url_hash);
+					if (existing_content_json) {
+						auto parsed_content_meta = nlohmann::json::parse(*existing_content_json, nullptr, false);
+						if (!parsed_content_meta.is_discarded()) {
+							try {
+								previous_content_hash = parsed_content_meta.get<storage::ContentMeta>().content_hash;
+							} catch (...) {
+							}
+						}
+					}
+				}
 				
                 vector<string> rawLinks;
                 if (extract_links_ && parseable) {
@@ -211,6 +224,13 @@ namespace crawler {
 					db_store->put(storage::CF_QUALITY, doc.url_hash, json(quality).dump());
 					db_store->put(storage::CF_PRESENTATION, doc.url_hash, json(pres).dump());
 					db_store->put(storage::CF_CONTROL, doc.url_hash, json(ctrl).dump());
+					db_store->recordCrawlResult(
+						doc.url_hash,
+						doc.normalized_url,
+						result.http_code,
+						content.content_hash,
+						!previous_content_hash.empty() && previous_content_hash != content.content_hash
+					);
 					
 					if (is_new_url) {
 						// Domain Indexing
@@ -272,12 +292,30 @@ namespace crawler {
 
 		case net::ResponseClass::REDIRECT: {
 			// Redirect handled as terminal fetch for now
+			if (db_store) {
+				db_store->recordCrawlResult(
+					DocCoreBuilder::hashUrl(item.normalized_url),
+					item.normalized_url,
+					result.http_code,
+					"",
+					false
+				);
+			}
 			markFetched(item.normalized_url, result.http_code);
 			break;
 		}
 
 		case net::ResponseClass::CLIENT_ERROR: {
 			// 4xx → terminal
+			if (db_store) {
+				db_store->recordCrawlResult(
+					DocCoreBuilder::hashUrl(item.normalized_url),
+					item.normalized_url,
+					result.http_code,
+					"",
+					false
+				);
+			}
 			markFailed(item.normalized_url, result.http_code);
 			break;
 		}
@@ -286,12 +324,30 @@ namespace crawler {
 			[[fallthrough]];
 		case net::ResponseClass::NETWORK_ERROR: {
 			// Retryable
+			if (db_store) {
+				db_store->recordCrawlResult(
+					DocCoreBuilder::hashUrl(item.normalized_url),
+					item.normalized_url,
+					result.http_code,
+					"",
+					false
+				);
+			}
 			markRetry(item.normalized_url, result.status, result.http_code);
 			break;
 		}
 
 		default:
 			// Defensive: treat unknown as retryable
+			if (db_store) {
+				db_store->recordCrawlResult(
+					DocCoreBuilder::hashUrl(item.normalized_url),
+					item.normalized_url,
+					result.http_code,
+					"",
+					false
+				);
+			}
 			markRetry(item.normalized_url, result.status, result.http_code);
 			break;
 		}
