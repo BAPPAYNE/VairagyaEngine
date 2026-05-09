@@ -101,11 +101,16 @@ namespace search {
             result.doc_id = document->doc_id;
             result.title = document->title;
             result.url = document->url;
+            result.display_url = document->display_url;
+            result.favicon_url = document->favicon_url;
+            result.language = document->language;
             result.snippet = snippet_generator_.generate(
                 buildSnippetSource(*document),
                 query.tokens
             );
             result.score = deduped[i].score;
+            result.last_fetched_time = document->last_fetched_time;
+            result.quality_score = document->quality_score;
 
             response.results.push_back(result);
         }
