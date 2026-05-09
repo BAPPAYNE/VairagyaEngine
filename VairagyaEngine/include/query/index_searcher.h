@@ -19,9 +19,17 @@ namespace search {
         uint64_t doc_id = 0;
         string title;
         string url;
+        string display_url;
+        string favicon_url;
+        string language;
         string snippet_source;
         string content_hash;
         float quality_score = 0.0f;
+        float spam_score = 0.0f;
+        float pagerank_score = 0.0f;
+        uint32_t inbound_links_count = 0;
+        uint32_t outbound_links_count = 0;
+        int crawl_depth = 0;
         time_t content_last_changed_time = 0;
         time_t last_fetched_time = 0;
         uint64_t click_count = 0;
@@ -32,6 +40,7 @@ namespace search {
         uint64_t doc_id;
         uint32_t term_frequency;
         uint32_t title_frequency;
+        uint32_t description_frequency;
         uint32_t url_frequency;
     };
 
@@ -50,6 +59,7 @@ namespace search {
         size_t documentCount() const;
         double averageDocumentLength() const;
         const vector<Posting>* postingsFromToken(const string& token) const;
+        const vector<string>& vocabulary() const;
 
     private:
         QueryProcessor processor_;

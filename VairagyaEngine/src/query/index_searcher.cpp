@@ -6,10 +6,11 @@ using namespace std;
 namespace search {
 
     namespace {
-        constexpr size_t MAX_SNIPPET_SOURCE_CHARS = 512;
+        constexpr size_t MAX_SNIPPET_SOURCE_CHARS = 4096;
         struct TermCounts {
             uint32_t body = 0;
             uint32_t title = 0;
+            uint32_t description = 0;
             uint32_t url = 0;
         };
 
@@ -56,23 +57,29 @@ namespace search {
 
             if (record.doc_core.doc_id == 0 ||
                 record.doc_core.normalized_url.empty() ||
+                record.fetch_meta.fetch_status_code != 200 ||
+                record.parsed_content.clean_text.empty() ||
                 record.control_flags.noindex ||
                 record.content_meta.is_duplicate ||
                 record.quality_signals.spam_score > 0.8f) {
                 return;
             }
 
-            auto body_tokens  = processor_.process(record.parsed_content.clean_text).tokens;
+            auto body_tokens = processor_.process(record.parsed_content.clean_text).tokens;
             auto title_tokens = processor_.process(record.parsed_content.title).tokens;
-            auto url_tokens   = processor_.process(record.doc_core.normalized_url).tokens;
+            auto description_tokens = processor_.process(record.parsed_content.meta_description).tokens;
+            auto url_tokens = processor_.process(record.doc_core.normalized_url).tokens;
 
             unordered_map<string, TermCounts> term_counts;
-            term_counts.reserve(body_tokens.size() + title_tokens.size() + url_tokens.size());
+            term_counts.reserve(body_tokens.size() + title_tokens.size() + description_tokens.size() + url_tokens.size());
             for (const auto& token : body_tokens) {
                 term_counts[token].body++;
             }
             for (const auto& token : title_tokens) {
                 term_counts[token].title++;
+            }
+            for (const auto& token : description_tokens) {
+                term_counts[token].description++;
             }
             for (const auto& token : url_tokens) {
                 term_counts[token].url++;
@@ -91,6 +98,7 @@ namespace search {
                     doc_id,
                     counts.body,
                     counts.title,
+                    counts.description,
                     counts.url
                 });
             }
@@ -102,9 +110,19 @@ namespace search {
                 : record.parsed_content.title;
 
             doc.url = record.doc_core.normalized_url;
+            doc.display_url = record.presentation.display_url.empty()
+                ? record.doc_core.normalized_url
+                : record.presentation.display_url;
+            doc.favicon_url = record.presentation.favicon_url;
+            doc.language = record.doc_core.language_code;
             doc.snippet_source = cappedSnippet(record);
             doc.content_hash = record.content_meta.content_hash;
             doc.quality_score = record.quality_signals.quality_score;
+            doc.spam_score = record.quality_signals.spam_score;
+            doc.pagerank_score = record.link_data.pagerank_score;
+            doc.inbound_links_count = record.link_data.inbound_links_count;
+            doc.outbound_links_count = record.link_data.outbound_links_count;
+            doc.crawl_depth = record.fetch_meta.crawl_depth;
             doc.content_last_changed_time = record.quality_signals.content_last_changed_time;
             doc.last_fetched_time = record.fetch_meta.last_fetched_time;
             if (auto click_it = click_counts.find(doc_id); click_it != click_counts.end())
@@ -159,27 +177,26 @@ namespace search {
                 return a->size() < b->size();
             });
 
-        // intersection
-        vector<uint64_t> result;
-        for (const auto& posting : *lists[0]) {
-            uint64_t doc = posting.doc_id;
-            bool match = true;
-
-            for (size_t i = 1; i < lists.size(); ++i) {
-                const auto& lst = *lists[i];
-                auto found = lower_bound(lst.begin(), lst.end(), doc,
-                    [](const Posting& p, uint64_t id) {
-                        return p.doc_id < id;
-                    });
-                if (found == lst.end() || found->doc_id != doc) {
-                    match = false;
-                    break;
-                }
+        unordered_map<uint64_t, uint32_t> match_counts;
+        for (const auto* list : lists) {
+            for (const auto& posting : *list) {
+                ++match_counts[posting.doc_id];
             }
-
-            if (match)
-                result.push_back(doc);
         }
+
+        const uint32_t required_matches = lists.size() <= 2
+            ? 1U
+            : static_cast<uint32_t>((lists.size() + 1) / 2);
+
+        vector<uint64_t> result;
+        result.reserve(match_counts.size());
+        for (const auto& [doc_id, count] : match_counts) {
+            if (count >= required_matches) {
+                result.push_back(doc_id);
+            }
+        }
+
+        sort(result.begin(), result.end());
 
         return result;
     }
@@ -207,6 +224,10 @@ namespace search {
 
     double IndexSearcher::averageDocumentLength() const {
         return average_document_length_;
+    }
+
+    const vector<string>& IndexSearcher::vocabulary() const {
+        return id_to_term_;
     }
 
 }
