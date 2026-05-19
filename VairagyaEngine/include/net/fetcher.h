@@ -2,7 +2,6 @@
 #define FETCHER_H
 
 #include <string>
-#include <cctype>
 #include <cstdint>
 
 using namespace std;
