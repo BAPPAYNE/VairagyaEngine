@@ -4,12 +4,14 @@
 #include <storage/db_schema.h>
 #include <string>
 
+using namespace std;
+
 class ParsedContentBuilder {
 public:
-    static storage::ParsedContent build(const std::string& html_content); // build parsed content from html content
-    static std::string extractTitle(const std::string& html); // extract title from html content
-    static std::string extractDescription(const std::string& html); // extract description from html content
-    static std::string cleanText(const std::string& html); // clean html content
+    static storage::ParsedContent build(const string& html_content); // build parsed content from html content
+    static string extractTitle(const string& html); // extract title from html content
+    static string extractDescription(const string& html); // extract description from html content
+    static string cleanText(const string& html); // clean html content
 };
 
 #endif // PARSED_CONTENT_BUILDER_H

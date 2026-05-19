@@ -2,7 +2,9 @@
 #define FETCHER_H
 
 #include <string>
-#include <cctype>
+#include <cstdint>
+
+using namespace std;
 
 namespace net {
 	enum class FetchStatus {
@@ -19,13 +21,13 @@ namespace net {
 
 	struct FetchResult {
 		FetchStatus status;
-		std::string content;
+		string content;
 		uint16_t http_code;
 		long long fetch_time_ms;
-        std::string content_type;
+        string content_type;
 	};
 
-	FetchResult fetch(const std::string& url, int timeout_ms = 5000);
+	FetchResult fetch(const string& url, int timeout_ms = 5000);
 }
 
 #endif // FETCHER_H

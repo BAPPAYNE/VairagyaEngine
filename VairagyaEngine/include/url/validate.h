@@ -28,10 +28,10 @@ enum class Crawlability {
 
 // Classification of URL analysis result
 
-//bool isValidURL(const std::string url);
-//bool isValidAbsoluteURL(const std::string input);
-//bool isValidRelativeReference(const std::string input);
-//bool isAllowedURL(const std::string input);
+//bool isValidURL(const string url);
+//bool isValidAbsoluteURL(const string input);
+//bool isValidRelativeReference(const string input);
+//bool isAllowedURL(const string input);
 
 SchemeType extractScheme(const string& url);
 

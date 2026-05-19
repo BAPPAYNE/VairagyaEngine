@@ -3,6 +3,7 @@
 
 #include "storage/host_state.h"
 
+#include <cstdint>
 #include <string>
 #include <optional>
 

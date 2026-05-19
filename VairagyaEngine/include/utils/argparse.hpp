@@ -649,8 +649,7 @@ namespace argparse {
         template <std::size_t N>
         explicit Argument(std::string_view prefix_chars,
             std::array<std::string_view, N>&& a)
-            : Argument(prefix_chars, std::move(a), std::make_index_sequence<N>{}) {
-        }
+            : Argument(prefix_chars, std::move(a), std::make_index_sequence<N>{}) {}
 
         Argument& help(std::string help_text) {
             m_help = std::move(help_text);
@@ -1778,8 +1777,7 @@ namespace argparse {
 
             explicit MutuallyExclusiveGroup(ArgumentParser& parent,
                 bool required = false)
-                : m_parent(parent), m_required(required), m_elements({}) {
-            }
+                : m_parent(parent), m_required(required), m_elements({}) {}
 
             MutuallyExclusiveGroup(const MutuallyExclusiveGroup& other) = delete;
             MutuallyExclusiveGroup&

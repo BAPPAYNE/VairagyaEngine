@@ -9,11 +9,11 @@ using namespace std;
 // - capture group 1 is the href value (works regardless of attribute order)
 static const regex canonical_regex(
 	R"(<link\b(?=[^>]*\brel\s*=\s*['"][^'"]*\bcanonical\b[^'"]*['"])[^>]*\bhref\s*=\s*['"]([^'"]+)['"][^>]*>)",
-	std::regex::icase
+	regex::icase
 );
 
 // Call this to fetch canonical_url, language_code, charset, content_type in form of DocCore.
-storage::DocCore DocCoreBuilder::build(const std::string& normalized_url, const std::string& html_header) {
+storage::DocCore DocCoreBuilder::build(const string& normalized_url, const string& html_header) {
 	storage::DocCore doc_core;
 	doc_core.normalized_url = normalized_url;
 	doc_core.url_hash = hashUrl(normalized_url);
@@ -54,7 +54,7 @@ string DocCoreBuilder::getLanguageCode(const string& html_header) {
 	string search_area = html_header.substr(0, 8192); // Search only head portion
 	static const regex lang_regex(
 		R"(<html\b[^>]*\blang\s*=\s*['"]([^'"]+)['"])",
-		std::regex::icase
+		regex::icase
 	);
 	smatch m;
 	if (regex_search(search_area, m, lang_regex) && m.size() >= 2) {
@@ -70,7 +70,7 @@ string DocCoreBuilder::getCharset(const string& html_header) {
 	// 1. Try HTML5 <meta charset="utf-8">
 	static const regex charset_regex1(
 		R"(<meta\b[^>]*\bcharset\s*=\s*['"]?([^'"\s>]+)['"]?)",
-		std::regex::icase
+		regex::icase
 	);
 	smatch m;
 	if (regex_search(search_area, m, charset_regex1) && m.size() >= 2) {
@@ -80,7 +80,7 @@ string DocCoreBuilder::getCharset(const string& html_header) {
 	// 2. Try HTML4 <meta http-equiv="content-type" content="text/html; charset=utf-8">
 	static const regex charset_regex2(
 		R"(<meta\b[^>]*\bcontent\s*=\s*['"][^'"]*charset\s*=\s*([^'"\s;>]+)[^'"]*['"][^>]*>)",
-		std::regex::icase
+		regex::icase
 	);
 	if (regex_search(search_area, m, charset_regex2) && m.size() >= 2) {
 		return m[1].str();
@@ -96,7 +96,7 @@ string DocCoreBuilder::getContentType(const string& html_header) {
 	// Look for <meta http-equiv="content-type" content="text/html; charset=utf-8">
 	static const regex content_type_regex(
 		R"(<meta\b(?=[^>]*\bhttp-equiv\s*=\s*['"]content-type['"])[^>]*\bcontent\s*=\s*['"]([^'"\s;>]+)[^'"]*['"])",
-		std::regex::icase
+		regex::icase
 	);
 	smatch m;
 	if (regex_search(search_area, m, content_type_regex) && m.size() >= 2) {

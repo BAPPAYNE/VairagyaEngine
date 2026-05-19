@@ -121,8 +121,8 @@ RobotsRules RobotsManager::extractRobotsDirectives(const string& robots_txt, con
     return rules;
 }
 
-void RobotsManager::absolutizeRobotsRules(const std::string& base_url, RobotsRules& rules) {
-    auto make_absolute = [&](std::string& path) {
+void RobotsManager::absolutizeRobotsRules(const string& base_url, RobotsRules& rules) {
+    auto make_absolute = [&](string& path) {
         if (path.empty()) { return; }
 
         if (path.starts_with("http://") || path.starts_with("https://")) {
@@ -147,6 +147,7 @@ void RobotsManager::absolutizeRobotsRules(const std::string& base_url, RobotsRul
 }
 
 void RobotsManager::updateRobots(const string& host, const RobotsRules& rules) {
+    lock_guard<mutex> lock(cache_mutex_);
 	cache[host] = rules;
 }
 
@@ -192,6 +193,7 @@ string RobotsManager::getRobotsURL(const string& url) {
 bool RobotsManager::hasRulesForUrl(const string& url) {
     string host = extractHost(url);
     if (host.empty()) return false;
+    lock_guard<mutex> lock(cache_mutex_);
     return cache.find(host) != cache.end();
 }
 
@@ -313,11 +315,14 @@ bool RobotsManager::canFetch(const string& url) {
     // Optimization: If no entry, assume allowed (or maybe we should fetch?)
     // Current design assumes populate happens externally or lazily. 
     // If extraction happens on same domain, rules might be there.
-    auto it = cache.find(host);
-    if (it == cache.end())
-        return true;
-
-    const RobotsRules& rules = it->second;
+    RobotsRules rules;
+    {
+        lock_guard<mutex> lock(cache_mutex_);
+        auto it = cache.find(host);
+        if (it == cache.end())
+            return true;
+        rules = it->second;
+    }
 
     int best_allow_len = -1;
     int best_disallow_len = -1;

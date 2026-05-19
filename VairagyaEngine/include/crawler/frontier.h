@@ -6,11 +6,15 @@
 #define FRONTIER_H
 
 #include <string>
+#include <cstdint>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
 #include <vector>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 
 #include "url/process.h"
 #include "storage/url_state.h"
@@ -57,8 +61,12 @@ namespace crawler {
 		void markDisallowed(const string& url);
 		void push(const string& url, int depth = 0, const string& referrer = "");
 		optional<FrontierItem> pop();
+		optional<FrontierItem> popWait(const atomic<bool>& running_flag);
 		bool empty() const;
 		void pushRetry(const FrontierItem& url);
+		void completeWork();
+		void shutdown();
+		CrawlStats stats() const;
 
 		CrawlStats crawl_stats;
 
@@ -72,6 +80,13 @@ namespace crawler {
 		unordered_map<string, HostState> hostQueue; // Map of host to its state
 		//unordered_set<size_t> visitedURLs; // Set of visited URL hashes
 		unordered_map<string, storage::URLState> urlStates;
+		mutable mutex mutex_;
+		condition_variable cv_;
+		size_t active_workers_ = 0;
+		bool accepting_work_ = true;
+
+		bool hasQueuedURLLocked() const;
+		optional<FrontierItem> popLocked();
 	};
 };
 

@@ -6,14 +6,16 @@
 #include <string>
 #include <cstdint>
 
+using namespace std;
+
 namespace storage {
     struct URLState {
-        std::string normalized_url;   // PK
+        string normalized_url;   // PK
         net::FetchStatus fetch_status;
         uint16_t http_status;
         uint8_t retry_count;
         uint64_t last_fetch_ts;
-        std::string content_hash;
+        string content_hash;
     };
 };
 

@@ -30,7 +30,7 @@ ProcessedURL processURL(const string& url);
 
 int priorityScore(const string& url);
 
-std::optional<string> resolveRelativeURL(const string& url, const string& base_url);
+optional<string> resolveRelativeURL(const string& url, const string& base_url);
 
 string reverseHost(const string& url);
 

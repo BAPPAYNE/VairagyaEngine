@@ -7,18 +7,20 @@
 #include <ctime>
 #include <nlohmann/json.hpp>
 
+using namespace std;
+
 namespace storage {
 
     // Identity Layer (doc_core_cf)
     struct DocCore {
         uint64_t doc_id = 0; // internal primary key
-        std::string normalized_url; // normalized URL
-        std::string url_hash; // hash of the URL, used for quick lookup
-        std::string canonical_url; // normalized URL, used for deduplication
+        string normalized_url; // normalized URL
+        string url_hash; // hash of the URL, used for quick lookup
+        string canonical_url; // normalized URL, used for deduplication
         time_t first_seen_time = 0; // timestamp of when the URL was discovered
-        std::string language_code; // ISO 639-1 language code, e.g., "en" for English
-        std::string charset; // character encoding of the document, e.g., "UTF-8, ASCII, ANSI"
-        std::string content_type; // MIME type of the document, e.g., "text/html"
+        string language_code; // ISO 639-1 language code, e.g., "en" for English
+        string charset; // character encoding of the document, e.g., "UTF-8, ASCII, ANSI"
+        string content_type; // MIME type of the document, e.g., "text/html"
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE(DocCore, doc_id, normalized_url, url_hash, canonical_url, first_seen_time, language_code, charset, content_type)
     };
@@ -29,10 +31,10 @@ namespace storage {
         int fetch_status_code = 0;
         int fetch_latency_ms = 0;
         size_t content_length_bytes = 0;
-        std::string etag;
-        std::string last_modified;
+        string etag;
+        string last_modified;
         int crawl_depth = 0;
-        std::string referrer_url;
+        string referrer_url;
         int crawl_priority = 0;
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE(FetchMeta, last_fetched_time, fetch_status_code, fetch_latency_ms, content_length_bytes, etag, last_modified, crawl_depth, referrer_url, crawl_priority)
@@ -40,7 +42,7 @@ namespace storage {
 
     // Content Fingerprinting (content_meta_cf)
     struct ContentMeta {
-        std::string content_hash;
+        string content_hash;
         uint64_t simhash = 0;
         bool is_duplicate = false;
         uint64_t canonical_doc_id = 0;
@@ -50,9 +52,9 @@ namespace storage {
 
     // Parsed Content (search core) (parsed_content_cf)
     struct ParsedContent {
-        std::string title;
-        std::string meta_description;
-        std::string clean_text;
+        string title;
+        string meta_description;
+        string clean_text;
         uint32_t token_count = 0;
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE(ParsedContent, title, meta_description, clean_text, token_count)
@@ -80,11 +82,11 @@ namespace storage {
 
     // Presentation Layer (presentation_cf)
     struct Presentation {
-        std::string snippet;
-        std::string favicon_url;
-        std::string site_name;
-        std::string breadcrumb;
-        std::string display_url;
+        string snippet;
+        string favicon_url;
+        string site_name;
+        string breadcrumb;
+        string display_url;
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE(Presentation, snippet, favicon_url, site_name, breadcrumb, display_url)
     };
@@ -94,23 +96,23 @@ namespace storage {
         bool robots_allowed = true;
         bool noindex = false;
         bool nofollow = false;
-        std::string index_status;
-        std::string error_reason;
+        string index_status;
+        string error_reason;
 
         NLOHMANN_DEFINE_TYPE_INTRUSIVE(ControlFlags, robots_allowed, noindex, nofollow, index_status, error_reason)
     };
 
     // Names for Column Families
-    const std::string CF_DOC_CORE = "doc_core_cf";
-    const std::string CF_DOMAIN_INDEX = "domain_index_cf";
-    const std::string CF_FETCH_META = "fetch_meta_cf";
-    const std::string CF_CONTENT_META = "content_meta_cf";
-    const std::string CF_PARSED_CONTENT = "parsed_content_cf";
-    const std::string CF_LINK_GRAPH = "link_graph_cf";
-    const std::string CF_QUALITY = "quality_cf";
-    const std::string CF_PRESENTATION = "presentation_cf";
-    const std::string CF_CONTROL = "control_cf";
-    const std::string CF_DEFAULT = "default";
+    const string CF_DOC_CORE = "doc_core_cf";
+    const string CF_DOMAIN_INDEX = "domain_index_cf";
+    const string CF_FETCH_META = "fetch_meta_cf";
+    const string CF_CONTENT_META = "content_meta_cf";
+    const string CF_PARSED_CONTENT = "parsed_content_cf";
+    const string CF_LINK_GRAPH = "link_graph_cf";
+    const string CF_QUALITY = "quality_cf";
+    const string CF_PRESENTATION = "presentation_cf";
+    const string CF_CONTROL = "control_cf";
+    const string CF_DEFAULT = "default";
 
 } // namespace storage
 

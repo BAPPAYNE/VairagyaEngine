@@ -14,6 +14,7 @@
 #include <string>
 #include <cstdlib>
 #include <iostream>
+#include <system_error>
 
 using namespace std;
 namespace beast = boost::beast;
@@ -26,6 +27,7 @@ namespace urls = boost::urls;
 namespace net {
 	FetchResult fetch(const string& uri_str, int timeout_ms) {
 		auto start = chrono::steady_clock::now();
+		auto timeout = chrono::milliseconds(timeout_ms);
 		try {
 			// ... (rest of the code remains same)
 			auto parsed = urls::parse_uri(uri_str);
@@ -63,9 +65,12 @@ namespace net {
 			// HTTP
 			if (!is_https) {
 				beast::tcp_stream stream(ioc);
+				stream.expires_after(timeout);
 				stream.connect(results);
 
+				stream.expires_after(timeout);
 				http::write(stream, req);
+				stream.expires_after(timeout);
 				http::read(stream, buffer, res);
 
 				beast::error_code ec;
@@ -87,10 +92,14 @@ namespace net {
 					throw runtime_error("SNI failed");
 				}
 
+				beast::get_lowest_layer(stream).expires_after(timeout);
 				beast::get_lowest_layer(stream).connect(results);
+				beast::get_lowest_layer(stream).expires_after(timeout);
 				stream.handshake(ssl::stream_base::client);
 
+				beast::get_lowest_layer(stream).expires_after(timeout);
 				http::write(stream, req);
+				beast::get_lowest_layer(stream).expires_after(timeout);
 				http::read(stream, buffer, res);
 
 				beast::error_code ec;
@@ -113,7 +122,7 @@ namespace net {
 			long long latency_ms = chrono::duration_cast<chrono::milliseconds>(end - start).count();
 
 			FetchResult result;
-			result.status = FetchStatus::FAILED;
+			result.status = latency_ms >= timeout_ms ? FetchStatus::TIMEOUT : FetchStatus::FAILED;
 			result.content = "";
 			result.http_code = 0;
 			result.fetch_time_ms = latency_ms;
@@ -121,4 +130,4 @@ namespace net {
 			return result;
 		}
 	}
-};
+};

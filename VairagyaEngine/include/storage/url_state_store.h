@@ -20,7 +20,7 @@ namespace storage {
 
 		virtual void put(const URLState& state) = 0;
 
-		virtual void markFetched(const string& normalized_url, uint16_t http_status, const std::string& content_hash, uint64_t fetch_ts) = 0;
+		virtual void markFetched(const string& normalized_url, uint16_t http_status, const string& content_hash, uint64_t fetch_ts) = 0;
 
 		virtual void markFailed(const string& normalized_url, uint16_t http_status) = 0;
 

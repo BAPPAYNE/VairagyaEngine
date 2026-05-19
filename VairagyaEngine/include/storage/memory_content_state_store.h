@@ -10,16 +10,18 @@
 using namespace std;
 using namespace storage;
 
+using namespace std;
+
 namespace storage{
 	class MemoryContentStateStore : public ContentStateStore {
 	public:
 		MemoryContentStateStore() = default;
 		~MemoryContentStateStore() override = default;
-		bool seen(const std::string& content_hash) override;
-		void record(const std::string& content_hash, const std::string& url, uint64_t ts) override;
+		bool seen(const string& content_hash) override;
+		void record(const string& content_hash, const string& url, uint64_t ts) override;
 	private:
-		std::unordered_map<std::string, ContentState> content_store_;
-		std::mutex mutex_;
+		unordered_map<string, ContentState> content_store_;
+		mutex mutex_;
 	};
 };
 

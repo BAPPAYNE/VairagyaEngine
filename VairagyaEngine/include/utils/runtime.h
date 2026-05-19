@@ -3,6 +3,8 @@
 
 #include <atomic>
 
-extern std::atomic<bool> g_running; // atomic boolean to check if the application is running
+using namespace std;
+
+extern atomic<bool> g_running; // atomic boolean to check if the application is running
 
 #endif // RUNTIME_H
