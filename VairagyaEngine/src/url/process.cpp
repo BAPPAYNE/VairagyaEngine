@@ -55,7 +55,7 @@ ProcessedURL processURL(const string& input) {
 	out.crawlability = assessCrawlability(out.scheme);
 
 	if (out.crawlability == Crawlability::NON_CRAWLABLE) {
-		std::cout << "[NON-CRAWLABLE] " << out.normalized << "\n";
+		cout << "[NON-CRAWLABLE] " << out.normalized << "\n";
 		out.priority = 0;
 		return out;
 	}
@@ -63,7 +63,7 @@ ProcessedURL processURL(const string& input) {
 	return out;
 }
 
-std::optional<string> resolveRelativeURL(const string& raw, const string& base_url) {
+optional<string> resolveRelativeURL(const string& raw, const string& base_url) {
 
 	// Reject empty
 	if (raw.empty()) {
@@ -91,7 +91,7 @@ std::optional<string> resolveRelativeURL(const string& raw, const string& base_u
 	// Parse reference
 	auto ref = parse_uri_reference(raw);
 	if (!ref) {
-		return std::nullopt;
+		return nullopt;
 	}
 
 	// Resolve (this handles absolute AND relative)
@@ -101,7 +101,7 @@ std::optional<string> resolveRelativeURL(const string& raw, const string& base_u
 	// Only allow http / https
 	if (resolved.scheme() != "http" &&
 		resolved.scheme() != "https") {
-		return std::nullopt;
+		return nullopt;
 	}
 
 	// Strip fragment
@@ -114,16 +114,16 @@ string reverseHost(const string& url_str) {
 	try {
 		auto parsed = boost::urls::parse_uri(url_str);
 		if (!parsed) return "";
-		string host = std::string(parsed->host());
+		string host = string(parsed->host());
 		
-		std::vector<std::string> parts;
-		std::string part;
-		std::istringstream stream(host);
-		while (std::getline(stream, part, '.')) {
+		vector<string> parts;
+		string part;
+		istringstream stream(host);
+		while (getline(stream, part, '.')) {
 			parts.push_back(part);
 		}
 		
-		std::string reversed;
+		string reversed;
 		for (int i = (int)parts.size() - 1; i >= 0; --i) {
 			reversed += parts[i];
 			if (i > 0) reversed += ".";

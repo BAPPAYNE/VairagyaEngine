@@ -2,15 +2,16 @@
 #include <ctime>
 
 using namespace storage;
+using namespace std;
 
 FetchMeta FetchMetaBuilder::build(
     int status_code, 
     int latency_ms, 
     size_t content_length, 
-    const std::string& etag, 
-    const std::string& last_modified,
+    const string& etag, 
+    const string& last_modified,
     int crawl_depth,
-    const std::string& referrer,
+    const string& referrer,
     int priority
 ) {
     FetchMeta meta;

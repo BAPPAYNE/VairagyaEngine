@@ -6,6 +6,7 @@
 #define FRONTIER_H
 
 #include <string>
+#include <cstdint>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>

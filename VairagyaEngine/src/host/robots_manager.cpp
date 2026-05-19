@@ -121,8 +121,8 @@ RobotsRules RobotsManager::extractRobotsDirectives(const string& robots_txt, con
     return rules;
 }
 
-void RobotsManager::absolutizeRobotsRules(const std::string& base_url, RobotsRules& rules) {
-    auto make_absolute = [&](std::string& path) {
+void RobotsManager::absolutizeRobotsRules(const string& base_url, RobotsRules& rules) {
+    auto make_absolute = [&](string& path) {
         if (path.empty()) { return; }
 
         if (path.starts_with("http://") || path.starts_with("https://")) {

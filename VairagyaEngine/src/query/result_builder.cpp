@@ -60,8 +60,8 @@ namespace search {
         SearchResponse response;
 
         response.query = query.original;
-        response.page = std::max<uint32_t>(1, page);
-        response.limit = std::clamp<uint32_t>(limit, 1, 100);
+        response.page = max<uint32_t>(1, page);
+        response.limit = clamp<uint32_t>(limit, 1, 100);
 
         vector<RankedDocument> deduped;
         deduped.reserve(ranked.size());
@@ -91,7 +91,7 @@ namespace search {
         }
 
         const size_t end =
-            std::min(deduped.size(), start + response.limit);
+            min(deduped.size(), start + response.limit);
 
         for (size_t i = start; i < end; ++i) {
             const auto* document = index.document(deduped[i].doc_id);

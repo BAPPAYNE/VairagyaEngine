@@ -10,8 +10,8 @@ ParsedContent ParsedContentBuilder::build(const string& html_content) {
     content.title = extractTitle(html_content);
     content.meta_description = extractDescription(html_content);
     content.clean_text = cleanText(html_content);
-    content.token_count = (uint32_t)std::count_if(content.clean_text.begin(), content.clean_text.end(), [](char c) {
-        return std::isspace(static_cast<unsigned char>(c));
+    content.token_count = (uint32_t)count_if(content.clean_text.begin(), content.clean_text.end(), [](char c) {
+        return isspace(static_cast<unsigned char>(c));
     }) + 1;
     return content;
 }

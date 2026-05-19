@@ -737,7 +737,7 @@ namespace storage {
     vector<SearchDocumentRecord> RocksDBStore::loadSearchDocuments() {
         vector<SearchDocumentRecord> documents;
         forEachSearchDocument([&](SearchDocumentRecord&& record) {
-            documents.push_back(std::move(record));
+            documents.push_back(move(record));
         });
         return documents;
     }
@@ -863,7 +863,7 @@ namespace storage {
                     }
                 }
 
-                visitor(std::move(record));
+                visitor(move(record));
             } catch (...) {
                 // Skip malformed documents so one bad record does not break search startup.
             }

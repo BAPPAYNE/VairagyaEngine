@@ -2,6 +2,7 @@
 #define ENGINE_H
 
 #include <string>
+#include <cstdint>
 #include <optional>
 #include <mutex>
 #include <atomic>

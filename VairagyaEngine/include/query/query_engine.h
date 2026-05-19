@@ -8,6 +8,7 @@
 #include "storage/rocksdb_store.h"
 
 #include <list>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>

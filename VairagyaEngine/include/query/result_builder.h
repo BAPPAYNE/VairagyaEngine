@@ -5,6 +5,7 @@
 #include "query/ranker.h"
 #include "query/snippet_generator.h"
 
+#include <cstdint>
 #include <vector>
 
 using namespace std;

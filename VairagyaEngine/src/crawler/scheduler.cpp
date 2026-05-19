@@ -15,14 +15,14 @@ namespace crawler {
 	
 	Responsibility:
 	- Query the associated `Frontier` for the next available `FrontierItem`.
-	- Return the result as `std::optional<FrontierItem>`. A disengaged optional
+	- Return the result as `optional<FrontierItem>`. A disengaged optional
 	  indicates that no item is currently available.
 	
 	Thread-safety:
 	- Assumes `Frontier::pop()` handles necessary synchronization if the frontier
 	  is accessed concurrently by multiple schedulers or workers.
 	
-	@return optional<FrontierItem> The next frontier item, or std::nullopt if none.
+	@return optional<FrontierItem> The next frontier item, or nullopt if none.
 	 */
 		return frontier_.pop();
 	}

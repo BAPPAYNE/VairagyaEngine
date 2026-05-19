@@ -2,6 +2,7 @@
 #define ROCKSDB_STORE_H
 
 #include <string>
+#include <cstdint>
 #include <vector>
 #include <map>
 #include <unordered_map>

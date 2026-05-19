@@ -1,12 +1,14 @@
 #include "storage/memory_content_state_store.h"
 
+using namespace std;
+
 namespace storage {
-	bool MemoryContentStateStore::seen(const std::string& content_hash) {
-		std::lock_guard<std::mutex> lock(mutex_); // Ensure thread safety
+	bool MemoryContentStateStore::seen(const string& content_hash) {
+		lock_guard<mutex> lock(mutex_); // Ensure thread safety
 		return content_store_.find(content_hash) != content_store_.end(); // Check existence
 	}
-	void MemoryContentStateStore::record(const std::string& content_hash, const std::string& url, uint64_t ts) {
-		std::lock_guard<std::mutex> lock(mutex_); // Ensure thread safety
+	void MemoryContentStateStore::record(const string& content_hash, const string& url, uint64_t ts) {
+		lock_guard<mutex> lock(mutex_); // Ensure thread safety
 		auto it = content_store_.find(content_hash);
 		if (it != content_store_.end()) {
 			// Update existing ContentState

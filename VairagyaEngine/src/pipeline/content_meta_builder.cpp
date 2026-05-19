@@ -5,8 +5,9 @@
 #include <vector>
 
 using namespace storage;
+using namespace std;
 
-ContentMeta ContentMetaBuilder::build(const std::string& clean_text, uint64_t canonical_doc_id) {
+ContentMeta ContentMetaBuilder::build(const string& clean_text, uint64_t canonical_doc_id) {
     ContentMeta meta;
     meta.content_hash = sha256(clean_text);
     meta.simhash = computeSimhash(clean_text);
@@ -15,12 +16,12 @@ ContentMeta ContentMetaBuilder::build(const std::string& clean_text, uint64_t ca
     return meta;
 }
 
-uint64_t ContentMetaBuilder::computeSimhash(const std::string& text) {
+uint64_t ContentMetaBuilder::computeSimhash(const string& text) {
     if (text.empty()) return 0;
 
-    std::vector<Simhash::hash_t> feature_hashes;
-    std::stringstream ss(text);
-    std::string token;
+    vector<Simhash::hash_t> feature_hashes;
+    stringstream ss(text);
+    string token;
 
     // Tokenize by whitespace and compute features
     while (ss >> token) {
