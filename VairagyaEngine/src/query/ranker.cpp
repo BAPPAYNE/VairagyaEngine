@@ -16,6 +16,44 @@ namespace search {
         bool startsWith(const string& value, const string& prefix) {
             return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
         }
+
+        size_t countPhraseHits(const string& text, const string& phrase) {
+            if (text.empty() || phrase.empty()) {
+                return 0;
+            }
+
+            size_t hits = 0;
+            size_t pos = text.find(phrase);
+            while (pos != string::npos) {
+                ++hits;
+                pos = text.find(phrase, pos + phrase.size());
+            }
+            return hits;
+        }
+
+        double proximityBoost(const string& text, const vector<string>& terms, size_t window) {
+            if (text.empty() || terms.size() < 2) {
+                return 0.0;
+            }
+
+            vector<size_t> positions;
+            positions.reserve(terms.size());
+            for (const auto& term : terms) {
+                const size_t pos = text.find(term);
+                if (pos == string::npos) {
+                    return 0.0;
+                }
+                positions.push_back(pos);
+            }
+
+            const auto [min_it, max_it] = minmax_element(positions.begin(), positions.end());
+            const size_t span = *max_it - *min_it;
+            if (span > window) {
+                return 0.0;
+            }
+
+            return 24.0 / (1.0 + static_cast<double>(span));
+        }
     }
 
     vector<RankedDocument> Ranker::rank(
@@ -54,13 +92,13 @@ namespace search {
                 );
 
                 if (posting.title_frequency > 0) {
-                    score += 3.5 + (0.8 * posting.title_frequency);
+                    score += 9.0 + (2.2 * posting.title_frequency);
                 }
                 if (posting.description_frequency > 0) {
-                    score += 1.5 + (0.35 * posting.description_frequency);
+                    score += 2.0 + (0.50 * posting.description_frequency);
                 }
                 if (posting.url_frequency > 0) {
-                    score += 0.75 + (0.25 * posting.url_frequency);
+                    score += 1.2 + (0.30 * posting.url_frequency);
                 }
 
                 scores[posting.doc_id] += score;
@@ -94,22 +132,35 @@ namespace search {
                 const string url = processor.normalize(document->url);
 
                 if (title == query.normalized) {
-                    score += 8.0;
+                    score += 120.0;
                 } else if (startsWith(title, query.normalized + " ")) {
-                    score += 4.0;
+                    score += 65.0;
                 } else if (title.find(query.normalized) != string::npos) {
-                    score += 3.0;
+                    score += 35.0;
                 } else if (body.find(query.normalized) != string::npos) {
-                    score += 1.5;
+                    score += 8.0;
                 }
 
                 if (url.find(query.normalized) != string::npos) {
-                    score += 1.0;
+                    score += 8.0;
                 }
 
                 if (query.tokens.size() == 1 && title.find("about " + query.normalized) != string::npos) {
                     score += 2.5;
                 }
+
+                const size_t title_phrase_hits = countPhraseHits(title, query.normalized);
+                if (title_phrase_hits > 0) {
+                    score += 220.0 * static_cast<double>(title_phrase_hits);
+                }
+
+                const size_t body_phrase_hits = countPhraseHits(body, query.normalized);
+                if (body_phrase_hits > 0) {
+                    score += 95.0 * static_cast<double>(body_phrase_hits);
+                }
+
+                score += proximityBoost(title, query.tokens, 80);
+                score += proximityBoost(body, query.tokens, 160);
             }
 
             const time_t freshness_time = document->content_last_changed_time > 0
@@ -120,10 +171,15 @@ namespace search {
                 score += 3.0 / (1.0 + (days_old / 14.0));
             }
 
-            score += log1p(static_cast<double>(document->click_count)) * 0.75;
-            score += log1p(static_cast<double>(document->inbound_links_count)) * 0.45;
-            score += static_cast<double>(max(0.0f, document->pagerank_score)) * 2.0;
-            score += max(0.0f, document->quality_score) * 1.25;
+            const double base_relevance = score;
+            const double authority_signal =
+                (log1p(static_cast<double>(document->click_count)) * 0.08) +
+                (log1p(static_cast<double>(document->inbound_links_count)) * 0.06) +
+                (static_cast<double>(max(0.0f, document->pagerank_score)) * 0.12) +
+                (max(0.0f, document->quality_score) * 0.10);
+            const double authority_multiplier = 1.0 + min(0.35, authority_signal);
+            score = base_relevance * authority_multiplier;
+
             score -= max(0.0f, document->spam_score) * 1.5;
             score -= min(1.5, max(0, document->crawl_depth) * 0.10);
 

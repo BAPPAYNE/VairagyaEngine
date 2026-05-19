@@ -72,6 +72,9 @@ namespace search {
 
         unordered_set<string> seen;
         for (const auto& token : tokenize(query.normalized)) {
+            if (token == "s") {
+                continue;
+            }
             if (stopwords().find(token) != stopwords().end()) {
                 continue;
             }
@@ -88,7 +91,21 @@ namespace search {
         output.reserve(input.size());
 
         bool previous_space = true;
-        for (unsigned char ch : input) {
+        for (size_t i = 0; i < input.size(); ++i) {
+            unsigned char ch = static_cast<unsigned char>(input[i]);
+
+            if (ch == '\'') {
+                continue;
+            }
+            if (i + 2 < input.size() &&
+                static_cast<unsigned char>(input[i]) == 0xE2 &&
+                static_cast<unsigned char>(input[i + 1]) == 0x80 &&
+                (static_cast<unsigned char>(input[i + 2]) == 0x98 ||
+                 static_cast<unsigned char>(input[i + 2]) == 0x99)) {
+                i += 2;
+                continue;
+            }
+
             if (ch < 128) {
                 if (isalnum(ch) || isMeaningfulSymbol(ch)) {
                     output.push_back(static_cast<char>(tolower(ch)));
