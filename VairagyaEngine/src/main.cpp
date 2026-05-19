@@ -8,9 +8,9 @@
 #include <csignal>
 #include <vector>
 #include <algorithm>
+#include <boost/url.hpp>
 #ifdef _WIN32
 #include <windows.h>
-#include <boost/url.hpp>
 #endif
 
 #include "url/normalize.h"
