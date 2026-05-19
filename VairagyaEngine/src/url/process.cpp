@@ -63,7 +63,7 @@ ProcessedURL processURL(const string& input) {
 	return out;
 }
 
-optional<string> resolveRelativeURL(const string& raw, const string& base_url) {
+std::optional<string> resolveRelativeURL(const string& raw, const string& base_url) {
 
 	// Reject empty
 	if (raw.empty()) {
