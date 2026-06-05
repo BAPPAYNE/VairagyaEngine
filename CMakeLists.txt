@@ -69,6 +69,8 @@ target_include_directories(VairagyaEngine
         ${PROJECT_SOURCE_DIR}/VairagyaEngine/include
     PUBLIC
         ${PROJECT_SOURCE_DIR}/VairagyaEngine/external/simHash-cpp
+    PUBLIC
+        ${PROJECT_SOURCE_DIR}/VairagyaEngine/external
 )
 
 target_link_libraries(VairagyaEngine

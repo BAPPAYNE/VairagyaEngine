@@ -8,12 +8,33 @@
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <array>
 
 using namespace std;
 
 namespace api {
 
     namespace {
+
+        constexpr std::array<signed char, 256> makeHexTable() {
+            std::array<signed char, 256> table{};
+
+            for (auto& v : table)
+                v = -1;
+
+            for (int i = 0; i <= 9; ++i)
+                table['0' + i] = i;
+
+            for (int i = 0; i < 6; ++i) {
+                table['a' + i] = 10 + i;
+                table['A' + i] = 10 + i;
+            }
+
+            return table;
+        }
+
+        constexpr auto hexTable = makeHexTable();
+
         uint32_t parsePositiveUInt(const char* value, uint32_t fallback) {
             if (!value) {
                 return fallback;
@@ -40,6 +61,8 @@ namespace api {
             }
         }
 
+
+
         int fromHex(char ch) {
             if (ch >= '0' && ch <= '9') return ch - '0';
             if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
@@ -47,16 +70,19 @@ namespace api {
             return -1;
         }
 
+		// This function decodes percent - encoded characters in a query parameter value, but preserves '+' characters as literal plus signs instead of converting them to spaces.
         string percentDecodePreservingPlus(const string& value) {
             string decoded;
-            decoded.reserve(value.size());
+			uint64_t value_size = value.size();
+            decoded.reserve(value_size);
 
-            for (size_t i = 0; i < value.size(); ++i) {
-                if (value[i] == '%' && i + 2 < value.size()) {
-                    const int high = fromHex(value[i + 1]);
-                    const int low = fromHex(value[i + 2]);
+            // 
+            for (size_t i = 0; i < value_size; ++i) {
+                if (value[i] == '%' && i + 2 < value_size) {
+                    const int high = hexTable[static_cast<unsigned char>(value[i + 1])];
+                    const int low = hexTable[static_cast<unsigned char>(value[i + 2])];
                     if (high >= 0 && low >= 0) {
-                        decoded.push_back(static_cast<char>((high << 4) | low));
+						decoded.push_back(static_cast<char>((high << 4) | low)); // Convert the two hex digits to a single character and append it to the decoded string.
                         i += 2;
                         continue;
                     }
@@ -67,6 +93,7 @@ namespace api {
             return decoded;
         }
 
+		// This function extracts the raw query parameter value from the request's raw URL, without any decoding or processing. It looks for the parameter in the raw query string and returns its value as-is, preserving any percent-encoded characters or '+' signs.
         string rawQueryParam(const crow::request& request, const string& name) {
             const auto question = request.raw_url.find('?');
             if (question == string::npos) {
@@ -75,12 +102,11 @@ namespace api {
 
             const string query_string = request.raw_url.substr(question + 1);
             size_t start = 0;
-            while (start <= query_string.size()) {
-                const auto end = query_string.find('&', start);
-                const string part = query_string.substr(
-                    start,
-                    end == string::npos ? string::npos : end - start
-                );
+            uint64_t query_string_size = query_string.size();
+			// Manually parse the query string to find the parameter value without decoding.
+            while (start <= query_string_size) {
+				const auto end = query_string.find('&', start);
+				const string part = query_string.substr(start, end == string::npos ? string::npos : end - start); // Extract the current key-value pair from the query string.
 
                 const auto equals = part.find('=');
                 const string key = percentDecodePreservingPlus(part.substr(0, equals));
@@ -124,7 +150,7 @@ namespace api {
         }
     }
 
-    void runSearchApi(shared_ptr<storage::RocksDBStore> db_store, uint16_t port) {
+    void runSearchApi(shared_ptr<storage::RocksDBStore> &db_store, uint16_t port) {
         if (!db_store) {
             cerr << "[ERROR] Cannot start API without an open database.\n";
             return;

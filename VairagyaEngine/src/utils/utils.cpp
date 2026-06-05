@@ -45,3 +45,78 @@ bool isHtmlPageUrl(const string& url) {
     }
     return true;
 }
+
+string sanitizeUtf8Lossy(const string& input) {
+    static const string replacement = "\xEF\xBF\xBD";
+
+    string output;
+    output.reserve(input.size());
+
+    auto appendReplacement = [&output]() {
+        output += replacement;
+    };
+
+    for (size_t i = 0; i < input.size();) {
+        const unsigned char byte = static_cast<unsigned char>(input[i]);
+
+        if (byte <= 0x7F) {
+            output.push_back(static_cast<char>(byte));
+            ++i;
+            continue;
+        }
+
+        size_t expected = 0;
+        uint32_t codepoint = 0;
+
+        if (byte >= 0xC2 && byte <= 0xDF) {
+            expected = 2;
+            codepoint = byte & 0x1F;
+        } else if (byte >= 0xE0 && byte <= 0xEF) {
+            expected = 3;
+            codepoint = byte & 0x0F;
+        } else if (byte >= 0xF0 && byte <= 0xF4) {
+            expected = 4;
+            codepoint = byte & 0x07;
+        } else {
+            appendReplacement();
+            ++i;
+            continue;
+        }
+
+        if (i + expected > input.size()) {
+            appendReplacement();
+            break;
+        }
+
+        bool valid = true;
+        for (size_t offset = 1; offset < expected; ++offset) {
+            const unsigned char continuation = static_cast<unsigned char>(input[i + offset]);
+            if ((continuation & 0xC0) != 0x80) {
+                valid = false;
+                break;
+            }
+            codepoint = (codepoint << 6) | (continuation & 0x3F);
+        }
+
+        if (valid) {
+            if ((expected == 2 && codepoint < 0x80) ||
+                (expected == 3 && codepoint < 0x800) ||
+                (expected == 4 && codepoint < 0x10000) ||
+                (codepoint >= 0xD800 && codepoint <= 0xDFFF) ||
+                codepoint > 0x10FFFF) {
+                valid = false;
+            }
+        }
+
+        if (!valid) {
+            appendReplacement();
+            ++i;
+            continue;
+        }
+
+        output.append(input, i, expected);
+        i += expected;
+    }
+
+    return output;
+}

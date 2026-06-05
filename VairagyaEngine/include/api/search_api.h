@@ -10,8 +10,8 @@ using namespace std;
 
 namespace api {
 
-    void runSearchApi(shared_ptr<storage::RocksDBStore> db_store, uint16_t port);
-
+    void runSearchApi(shared_ptr<storage::RocksDBStore> &db_store, uint16_t port);
+    
 }
 
 #endif
