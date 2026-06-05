@@ -213,6 +213,30 @@ namespace crawler {
                                                                  item.normalized_url, "");
 				ControlFlags ctrl = ControlFlagsBuilder::build(parseable ? result.content : "", true);
 
+                auto sanitizeField = [](string& value) {
+                    value = sanitizeUtf8Lossy(value);
+                };
+                sanitizeField(doc.normalized_url);
+                sanitizeField(doc.url_hash);
+                sanitizeField(doc.canonical_url);
+                sanitizeField(doc.language_code);
+                sanitizeField(doc.charset);
+                sanitizeField(doc.content_type);
+                sanitizeField(fetch.etag);
+                sanitizeField(fetch.last_modified);
+                sanitizeField(fetch.referrer_url);
+                sanitizeField(content.content_hash);
+                sanitizeField(parsed.title);
+                sanitizeField(parsed.meta_description);
+                sanitizeField(parsed.clean_text);
+                sanitizeField(pres.snippet);
+                sanitizeField(pres.favicon_url);
+                sanitizeField(pres.site_name);
+                sanitizeField(pres.breadcrumb);
+                sanitizeField(pres.display_url);
+                sanitizeField(ctrl.index_status);
+                sanitizeField(ctrl.error_reason);
+
 				// 4. Persistence into RocksDB
 				if (db_store) {
 					using json = nlohmann::json;
