@@ -42,8 +42,7 @@ namespace crawler {
 		, robotsManager(hostStore)
 		, running(true)
 		, extract_links_(extract_links)
-	{
-	}
+	{}
 
 	void Engine::addURL(const string& url, int depth, const string& referrer) {
 		frontier.push(url, depth, referrer);
@@ -76,15 +75,15 @@ namespace crawler {
 
 		auto stats = frontier.stats();
 		cout <<
-		    //"[DISCOVERED] : " << stats.discovered<< "\n" <<
+			//"[DISCOVERED] : " << stats.discovered<< "\n" <<
 			//"[FETCHED] : " << stats.fetched<< "\n" <<
 			//"[FAILED] : " << stats.failed<< "\n" <<
 			//"[RETRIED] : " << stats.retried<< "\n" <<
 			//"[DISALLOWED] : " << stats.disallowed << "\n" << 
 			//"----------------------\n"
-		"" ;
+			"";
 
-        // 1.5. Check Robots.txt only if NOT ignoring robots
+		// 1.5. Check Robots.txt only if NOT ignoring robots
 		if (!ignore_robots) {
 			if (!robotsManager.hasRulesForUrl(item.normalized_url)) {
 				string robotsUrl = RobotsManager::getRobotsURL(item.normalized_url);
@@ -95,13 +94,17 @@ namespace crawler {
 					RobotsRules rules;
 					if (result.http_code >= 200 && result.http_code < 300) {
 						rules = robotsManager.extractRobotsDirectives(result.content, "VairagyaEngine");
-					} else {
+					}
+					else {
 						// fetching failed or 404, assume allow all (default empty rules)
 					}
 					string host = RobotsManager::extractHost(item.normalized_url);
 					robotsManager.updateRobots(host, rules);
-					cout << "[ROBOTS] Fetched " << robotsUrl << " Status: " << result.http_code;
-						//<< " => Allowed: " << rules.allow.size() << ", Disallowed: " << rules.disallow.size() << " (Ignored: No)" << endl;
+					{
+						lock_guard<mutex> io_lock(g_io_mtx);
+						cout << "[ROBOTS] Fetched " << robotsUrl << " Status: " << result.http_code
+							<< " => Allow: " << rules.allow.size() << ", Disallow: " << rules.disallow.size() << "\n";
+					}
 				}
 			}
 			if (!robotsManager.canFetch(item.normalized_url)) {
@@ -116,9 +119,12 @@ namespace crawler {
 		// 3. Classify response
 		auto cls = net::classify(result);
 
-		cout << "Fetched: " << item.normalized_url
-			<< " HTTP: " << result.http_code << " Size: " << result.content.size()
-			<< endl;
+		{
+			lock_guard<mutex> io_lock(g_io_mtx);
+			cout << "Fetched: " << item.normalized_url
+				<< " HTTP: " << result.http_code << " Size: " << result.content.size()
+				<< "\n";
+		}
 
 		// 4. Act based on classification
 		switch (cls) {
@@ -128,30 +134,30 @@ namespace crawler {
 				log_utils::log_url(item.normalized_url);
 
 				// Identify if content is likely parseable (HTML/Text)
-                bool parseable = false;
-                string ct = result.content_type;
-                transform(ct.begin(), ct.end(), ct.begin(), ::tolower);
-                
-                if (ct.find("text/html") != string::npos || ct.find("text/plain") != string::npos || 
-                    ct.find("application/rss+xml") != string::npos || ct.find("application/xml") != string::npos ||
-                    ct.find("application/xhtml+xml") != string::npos ||
-                    ct.empty()) { // If empty, fallback to extension check
-                    parseable = true;
-                    
-                    string lower_url = item.normalized_url;
-                    transform(lower_url.begin(), lower_url.end(), lower_url.begin(), ::tolower);
-                    if (lower_url.find(".woff") != string::npos || lower_url.find(".ttf") != string::npos ||
-                    	lower_url.find(".gif") != string::npos || lower_url.find(".ico") != string::npos ||
-                        lower_url.find(".zip") != string::npos || lower_url.find(".gz") != string::npos ||
-                        lower_url.find(".bin") != string::npos || lower_url.find(".woff2") != string::npos ||
-						lower_url.find(".js") != string::npos  || lower_url.find(".css") != string::npos ) {
-                        parseable = false;
-                    }
-                }
+				bool parseable = false;
+				string ct = result.content_type;
+				transform(ct.begin(), ct.end(), ct.begin(), ::tolower);
+
+				if (ct.find("text/html") != string::npos || ct.find("text/plain") != string::npos ||
+					ct.find("application/rss+xml") != string::npos || ct.find("application/xml") != string::npos ||
+					ct.find("application/xhtml+xml") != string::npos ||
+					ct.empty()) { // If empty, fallback to extension check
+					parseable = true;
+
+					string lower_url = item.normalized_url;
+					transform(lower_url.begin(), lower_url.end(), lower_url.begin(), ::tolower);
+					if (lower_url.find(".woff") != string::npos || lower_url.find(".ttf") != string::npos ||
+						lower_url.find(".gif") != string::npos || lower_url.find(".ico") != string::npos ||
+						lower_url.find(".zip") != string::npos || lower_url.find(".gz") != string::npos ||
+						lower_url.find(".bin") != string::npos || lower_url.find(".woff2") != string::npos ||
+						lower_url.find(".js") != string::npos || lower_url.find(".css") != string::npos) {
+						parseable = false;
+					}
+				}
 
 				// 1. Build Document Core
 				storage::DocCore doc = DocCoreBuilder::build(item.normalized_url, parseable ? result.content : "");
-				
+
 				// 2. Assign and persistent increment Doc ID
 				uint64_t current_id = 0;
 				bool is_new_url = true;
@@ -165,7 +171,8 @@ namespace crawler {
 								doc.first_seen_time = existing_doc.first_seen_time;
 								is_new_url = false;
 							}
-						} catch (...) {
+						}
+						catch (...) {
 							// Malformed existing records are overwritten with a fresh id below.
 						}
 					}
@@ -177,16 +184,16 @@ namespace crawler {
 						db_store->setNextDocId(current_id + 1);
 					}
 				}
-				
+
 				// 3. Run Pipeline Builders
 				ParsedContent parsed;
-                if (parseable) {
-                    parsed = ParsedContentBuilder::build(result.content);
-                }
+				if (parseable) {
+					parsed = ParsedContentBuilder::build(result.content);
+				}
 
-				FetchMeta fetch = FetchMetaBuilder::build(result.http_code, (int)result.fetch_time_ms, 
-                                                               result.content.size(), "", "", 
-                                                               item.depth, item.referrer_url);
+				FetchMeta fetch = FetchMetaBuilder::build(result.http_code, (int)result.fetch_time_ms,
+					result.content.size(), "", "",
+					item.depth, item.referrer_url);
 				ContentMeta content = ContentMetaBuilder::build(parsed.clean_text);
 				string previous_content_hash;
 				if (db_store) {
@@ -196,46 +203,47 @@ namespace crawler {
 						if (!parsed_content_meta.is_discarded()) {
 							try {
 								previous_content_hash = parsed_content_meta.get<storage::ContentMeta>().content_hash;
-							} catch (...) {
+							}
+							catch (...) {
 							}
 						}
 					}
 				}
-				
-                vector<string> rawLinks;
-                if (extract_links_ && parseable) {
-                    rawLinks = extractLinks(result.content);
-                }
-                
-                LinkData links = LinkDataBuilder::build((uint32_t)rawLinks.size());
+
+				vector<string> rawLinks;
+				if (extract_links_ && parseable) {
+					rawLinks = extractLinks(result.content);
+				}
+
+				LinkData links = LinkDataBuilder::build((uint32_t)rawLinks.size());
 				QualitySignals quality = QualitySignalsBuilder::build(parsed.clean_text, time(nullptr));
-				Presentation pres = PresentationBuilder::build(parsed.clean_text, parseable ? result.content : "", "", 
-                                                                 item.normalized_url, "");
+				Presentation pres = PresentationBuilder::build(parsed.clean_text, parseable ? result.content : "", "",
+					item.normalized_url, "");
 				ControlFlags ctrl = ControlFlagsBuilder::build(parseable ? result.content : "", true);
 
-                auto sanitizeField = [](string& value) {
-                    value = sanitizeUtf8Lossy(value);
-                };
-                sanitizeField(doc.normalized_url);
-                sanitizeField(doc.url_hash);
-                sanitizeField(doc.canonical_url);
-                sanitizeField(doc.language_code);
-                sanitizeField(doc.charset);
-                sanitizeField(doc.content_type);
-                sanitizeField(fetch.etag);
-                sanitizeField(fetch.last_modified);
-                sanitizeField(fetch.referrer_url);
-                sanitizeField(content.content_hash);
-                sanitizeField(parsed.title);
-                sanitizeField(parsed.meta_description);
-                sanitizeField(parsed.clean_text);
-                sanitizeField(pres.snippet);
-                sanitizeField(pres.favicon_url);
-                sanitizeField(pres.site_name);
-                sanitizeField(pres.breadcrumb);
-                sanitizeField(pres.display_url);
-                sanitizeField(ctrl.index_status);
-                sanitizeField(ctrl.error_reason);
+				auto sanitizeField = [](string& value) {
+					value = sanitizeUtf8Lossy(value);
+					};
+				sanitizeField(doc.normalized_url);
+				sanitizeField(doc.url_hash);
+				sanitizeField(doc.canonical_url);
+				sanitizeField(doc.language_code);
+				sanitizeField(doc.charset);
+				sanitizeField(doc.content_type);
+				sanitizeField(fetch.etag);
+				sanitizeField(fetch.last_modified);
+				sanitizeField(fetch.referrer_url);
+				sanitizeField(content.content_hash);
+				sanitizeField(parsed.title);
+				sanitizeField(parsed.meta_description);
+				sanitizeField(parsed.clean_text);
+				sanitizeField(pres.snippet);
+				sanitizeField(pres.favicon_url);
+				sanitizeField(pres.site_name);
+				sanitizeField(pres.breadcrumb);
+				sanitizeField(pres.display_url);
+				sanitizeField(ctrl.index_status);
+				sanitizeField(ctrl.error_reason);
 
 				// 4. Persistence into RocksDB
 				if (db_store) {
@@ -255,7 +263,7 @@ namespace crawler {
 						content.content_hash,
 						!previous_content_hash.empty() && previous_content_hash != content.content_hash
 					);
-					
+
 					if (is_new_url) {
 						// Domain Indexing
 						string rev_host = reverseHost(item.normalized_url);
@@ -264,51 +272,59 @@ namespace crawler {
 					}
 				}
 
-				cout << "[INDEXED] " << item.normalized_url << " (ID: " << doc.doc_id << ", Lang: " << doc.language_code << ")\n";
-                
-                if (extract_links_ && parseable) {
-                    cout << "[LINKS] Found: " << rawLinks.size() << endl;
+				{
+					lock_guard<mutex> io_lock(g_io_mtx);
+					cout << "[INDEXED] " << item.normalized_url << " (ID: " << doc.doc_id << ", Lang: " << doc.language_code << ")\n";
+				}
 
-                    // Resolve + process + enqueue
-                    for (const auto& raw : rawLinks) {
+				if (extract_links_ && parseable) {
+					{
+						lock_guard<mutex> io_lock(g_io_mtx);
+						cout << "[LINKS] Found: " << rawLinks.size() << "\n";
+					}
+
+					// Resolve + process + enqueue
+					for (const auto& raw : rawLinks) {
 						if (!g_running.load() || !running.load()) {
 							break;
 						}
-                        auto resolved = resolveRelativeURL(raw, item.normalized_url);
-                        if (!resolved) continue;
+						auto resolved = resolveRelativeURL(raw, item.normalized_url);
+						if (!resolved) continue;
 
-                        auto processed = processURL(*resolved);
-                        if (processed.status == URLStatus::ACCEPTED_URL) {
-                            bool domain_allowed = true;
-                            if (same_domain && !allowed_domains.empty()) {
-                                try {
-                                    auto parsed_url = boost::urls::parse_uri(processed.normalized);
-                                    if (parsed_url) {
-                                        string domain = string(parsed_url->host());
-                                        domain_allowed = false;
-                                        for (const auto& allowed : allowed_domains) {
-                                            if (domain == allowed || (domain.size() > allowed.size() && domain.ends_with("." + allowed))) {
-                                                domain_allowed = true;
-                                                break;
-                                            }
-                                        }
-                                    } else {
-                                        domain_allowed = false;
-                                    }
-                                } catch (...) {
-                                    domain_allowed = false;
-                                }
-                            }
+						auto processed = processURL(*resolved);
+						if (processed.status == URLStatus::ACCEPTED_URL) {
+							bool domain_allowed = true;
+							if (same_domain && !allowed_domains.empty()) {
+								try {
+									auto parsed_url = boost::urls::parse_uri(processed.normalized);
+									if (parsed_url) {
+										string domain = string(parsed_url->host());
+										domain_allowed = false;
+										for (const auto& allowed : allowed_domains) {
+											if (domain == allowed || (domain.size() > allowed.size() && domain.ends_with("." + allowed))) {
+												domain_allowed = true;
+												break;
+											}
+										}
+									}
+									else {
+										domain_allowed = false;
+									}
+								}
+								catch (...) {
+									domain_allowed = false;
+								}
+							}
 
-                            if (domain_allowed && (ignore_robots || robotsManager.canFetch(processed.normalized))) {
-                                
+							if (domain_allowed && (ignore_robots || robotsManager.canFetch(processed.normalized))) {
+
 								if (domain_allowed && isHtmlPageUrl(processed.normalized) && (ignore_robots || robotsManager.canFetch(processed.normalized))) {
 									addURL(processed.normalized, item.depth + 1, item.normalized_url);
 								}
-                            }
-                        }
-                    }
-                }
+							}
+						}
+					}
+				}
 			}
 			markFetched(item.normalized_url, result.http_code);
 			break;
@@ -376,7 +392,7 @@ namespace crawler {
 			break;
 		}
 
-		
+
 	}
 
 	void Engine::workerLoop(size_t worker_id) {
@@ -388,9 +404,11 @@ namespace crawler {
 
 			try {
 				processItem(*itemOpt);
-			} catch (const exception& err) {
+			}
+			catch (const exception& err) {
 				cerr << "[ERROR] Worker " << worker_id << " crashed while processing URL: " << err.what() << "\n";
-			} catch (...) {
+			}
+			catch (...) {
 				cerr << "[ERROR] Worker " << worker_id << " crashed while processing URL with an unknown exception.\n";
 			}
 			frontier.completeWork();
@@ -456,7 +474,7 @@ namespace crawler {
 		frontier.markRetry(url, status, http_status);
 	}
 
-	void Engine::markDisallowed(const string &url) {
+	void Engine::markDisallowed(const string& url) {
 		frontier.markDisallowed(url);
 	}
 
@@ -479,7 +497,7 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 		if (db_store) {
 			db_store->savePendingURLs(engine.getPendingURLs());
 		}
-	};
+		};
 
 	// Seed
 	int size_initialURLS = initialURLs.size();
@@ -501,6 +519,6 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 		db_store->savePendingURLs(pendingURLs);
 		cout << "[RESUME] Saved " << pendingURLs.size() << " pending URLs to database.\n";
 	}
-	
+
 	log_utils::close_output_streams();
 }

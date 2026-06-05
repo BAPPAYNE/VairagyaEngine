@@ -5,30 +5,30 @@
 
 
 RobotsManager::RobotsManager(HostStateStore& hostStore)
-	: hostStore_(hostStore) { }
+    : hostStore_(hostStore) {}
 
 void RobotsManager::ensureRobots(const string& host, uint64_t now_ts) {
-	auto stateOpt = hostStore_.get(host); // Check if we already have robots.txt info
-	if (stateOpt.has_value()) {
-		return; // Already have robots.txt info
-	}
+    auto stateOpt = hostStore_.get(host); // Check if we already have robots.txt info
+    if (stateOpt.has_value()) {
+        return; // Already have robots.txt info
+    }
 
-	HostState hostState;
-	hostState.host = host;
-	hostState.robots_allowed = true; // Default to allowed
-	hostState.crawl_delay_ms = 1000;
-	hostState.robots_fetch_ts = now_ts;
-	hostState.last_request_ts = 0;
+    HostState hostState;
+    hostState.host = host;
+    hostState.robots_allowed = true; // Default to allowed
+    hostState.crawl_delay_ms = 1000;
+    hostState.robots_fetch_ts = now_ts;
+    hostState.last_request_ts = 0;
 
-	hostStore_.put(hostState);
+    hostStore_.put(hostState);
 }
 
 bool RobotsManager::isAllowed(const string& host, const string& path) {
-	auto stateOpt = hostStore_.get(host);
-	if (stateOpt.has_value()) {
-		return stateOpt->robots_allowed;
-	}
-	return true;
+    auto stateOpt = hostStore_.get(host);
+    if (stateOpt.has_value()) {
+        return stateOpt->robots_allowed;
+    }
+    return true;
 }
 
 static inline void trim(string& s) {
@@ -40,26 +40,45 @@ static bool startsWithIgnoreCase(const string& str, const string& prefix) {
     if (str.size() < prefix.size()) return false;
     return equal(prefix.begin(), prefix.end(), str.begin(), [](char a, char b) {
         return tolower((unsigned char)a) == tolower((unsigned char)b);
-    });
+        });
 }
 
+// Lower-case copy helper.
+static string toLowerCopy(string s) {
+    transform(s.begin(), s.end(), s.begin(),
+        [](unsigned char c) { return (char)tolower(c); });
+    return s;
+}
+
+// A robots User-agent value matches our crawler if it is a case-insensitive
+// prefix of our agent token (google/robotstxt rule: "Google" matches
+// "Googlebot"). "*" is handled separately as the global group.
+static bool agentApplies(const string& robots_agent, const string& our_agent) {
+    string ra = toLowerCopy(robots_agent);
+    string oa = toLowerCopy(our_agent);
+    if (ra.empty()) return false;
+    return oa.rfind(ra, 0) == 0;
+}
+
+// Parse robots.txt with correct group selection. Per google/robotstxt, a group
+// that targets our specific agent OVERRIDES the wildcard "*" group entirely
+// (they are NOT merged). We therefore accumulate rules into a "specific" bucket
+// and a "global" bucket and return the specific one if our agent was named.
 RobotsRules RobotsManager::extractRobotsDirectives(const string& robots_txt, const string& crawler_agent) {
-    RobotsRules rules;
+    RobotsRules specific, global;
 
     istringstream iss(robots_txt);
     string line;
 
-    // Group state
-    bool collecting_agents = false;   // still reading User-agent lines
-    bool group_matches = false;        // does this group apply to us?
+    bool collecting_agents = false; // currently inside a run of User-agent lines
+    bool group_global = false;      // current group targets "*"
+    bool group_specific = false;    // current group targets our agent
+    bool seen_specific = false;     // our agent was named anywhere
 
     while (getline(iss, line)) {
-
-        // Handle CRLF
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
 
-        // Remove comments
         size_t hash = line.find('#');
         if (hash != string::npos)
             line.erase(hash);
@@ -68,57 +87,62 @@ RobotsRules RobotsManager::extractRobotsDirectives(const string& robots_txt, con
         if (line.empty())
             continue;
 
-        // User-agent
         if (startsWithIgnoreCase(line, "User-agent:")) {
-
             string agent = line.substr(11);
             trim(agent);
 
-            // If we already passed rules, this starts a NEW group
+            // A directive since the last User-agent line starts a fresh group.
             if (!collecting_agents) {
                 collecting_agents = true;
-                group_matches = false;
+                group_global = group_specific = false;
             }
 
-            if (agent == "*" || agent == crawler_agent)
-                group_matches = true;
-
+            if (agent == "*") {
+                group_global = true;
+            }
+            else if (agentApplies(agent, crawler_agent)) {
+                group_specific = true;
+                seen_specific = true;
+            }
             continue;
         }
 
-        // First non-User-agent line ends agent collection
-        collecting_agents = false;
+        collecting_agents = false; // first non-User-agent line closes the run
 
-        // Sitemap (global)
+        // Sitemaps are global (independent of groups).
         if (startsWithIgnoreCase(line, "Sitemap:")) {
             string url = line.substr(8);
             trim(url);
-            if (!url.empty())
-                rules.sitemaps.emplace_back(url);
+            if (!url.empty()) {
+                specific.sitemaps.emplace_back(url);
+                global.sitemaps.emplace_back(url);
+            }
             continue;
         }
-
-        // Rules (only if group applies)
-        if (!group_matches)
-            continue;
 
         if (startsWithIgnoreCase(line, "Allow:")) {
             string path = line.substr(6);
             trim(path);
-            if (!path.empty())
-                rules.allow.emplace_back(path);
+            if (!path.empty()) {
+                if (group_specific) specific.allow.emplace_back(path);
+                if (group_global)   global.allow.emplace_back(path);
+            }
             continue;
         }
 
         if (startsWithIgnoreCase(line, "Disallow:")) {
             string path = line.substr(9);
             trim(path);
-            if (!path.empty())
-                rules.disallow.emplace_back(path);
+            if (!path.empty()) {
+                if (group_specific) specific.disallow.emplace_back(path);
+                if (group_global)   global.disallow.emplace_back(path);
+            }
             continue;
         }
     }
-    return rules;
+
+    // Specific group wins if our agent was named at all (even with no rules).
+    return seen_specific ? specific : global;
 }
 
 void RobotsManager::absolutizeRobotsRules(const string& base_url, RobotsRules& rules) {
@@ -148,7 +172,7 @@ void RobotsManager::absolutizeRobotsRules(const string& base_url, RobotsRules& r
 
 void RobotsManager::updateRobots(const string& host, const RobotsRules& rules) {
     lock_guard<mutex> lock(cache_mutex_);
-	cache[host] = rules;
+    cache[host] = rules;
 }
 
 string RobotsManager::extractHost(const string& url) {
@@ -176,15 +200,16 @@ string RobotsManager::extractPath(const string& url) {
 
 string RobotsManager::getRobotsURL(const string& url) {
     auto scheme_end = url.find("://");
-    if (scheme_end == string::npos) return ""; 
+    if (scheme_end == string::npos) return "";
 
     auto host_start = scheme_end + 3;
     auto host_end = url.find('/', host_start);
-    
+
     string origin;
     if (host_end == string::npos) {
         origin = url;
-    } else {
+    }
+    else {
         origin = url.substr(0, host_end);
     }
     return origin + "/robots.txt";
@@ -198,74 +223,22 @@ bool RobotsManager::hasRulesForUrl(const string& url) {
 }
 
 
-static bool matchesRule(const string& path, const string& pattern) {
-    size_t p_len = pattern.length();
-    size_t s_len = path.length();
-    
-    // Check for '$' at the end of the pattern
-    bool end_anchor = (p_len > 0 && pattern.back() == '$');
-    string effective_pattern = end_anchor ? pattern.substr(0, p_len - 1) : pattern;
-    
-    size_t p_idx = 0;
-    size_t s_idx = 0;
-    size_t star_idx = string::npos;
-    size_t match_idx = 0;
-    
-    size_t ep_len = effective_pattern.length();
-
-    while (s_idx < s_len) {
-        if (p_idx < ep_len && effective_pattern[p_idx] == path[s_idx]) {
-            p_idx++;
-            s_idx++;
-        }
-        else if (p_idx < ep_len && effective_pattern[p_idx] == '*') {
-            star_idx = p_idx;
-            match_idx = s_idx;
-            p_idx++;
-        }
-        else if (star_idx != string::npos) {
-            p_idx = star_idx + 1;
-            match_idx++;
-            s_idx = match_idx;
-        }
-        else {
-            return false; 
-        }
-    }
-
-    // If we exhausted string, we must also exhaust pattern (handling trailing *)
-    while (p_idx < ep_len && effective_pattern[p_idx] == '*') {
-        p_idx++;
-    }
-
-    // If anchored, pattern must match whole string.
-    // If not anchored, we only needed to match the prefix (which means we consumed enough of path to satisfy pattern)
-    // BUT the loop above consumes the whole string.
-    
-    // WAIT. Robots.txt is a PREFIX match. The loop above enforces that the PATTERN matches the STRING.
-    // If checking prefix:
-    // /foo matches /foobar
-    // The loop above will FAIL for /foobar vs /foo because p_idx hits end but s_idx < s_len.
-    
-    // Let's rewrite for Prefix Match support explicitly.
-    return true; 
-}
-
-// Improved Wildcard Matcher for Robots.txt
+// Wildcard matcher for robots.txt: prefix match with '*' (any run) and a
+// trailing '$' end anchor.
 static bool robotsMatch(const string& path, const string& rule) {
     size_t pathLen = path.length();
     size_t ruleLen = rule.length();
-    
+
     size_t pi = 0; // path index
     size_t ri = 0; // rule index
-    
+
     size_t starRi = string::npos;
     size_t starPi = string::npos;
 
     while (pi < pathLen && ri < ruleLen) {
         if (rule[ri] == '$' && ri == ruleLen - 1) {
-             // End anchor reached. We must be at end of path (handled below).
-             break;
+            // End anchor reached. We must be at end of path (handled below).
+            break;
         }
         if (rule[ri] == path[pi]) {
             pi++; ri++;
@@ -276,10 +249,10 @@ static bool robotsMatch(const string& path, const string& rule) {
             ri++;
         }
         else if (starRi != string::npos) {
-             // Mismatch after *, backtrack
-             ri = starRi + 1;
-             starPi++;
-             pi = starPi;
+            // Mismatch after *, backtrack
+            ri = starRi + 1;
+            starPi++;
+            pi = starPi;
         }
         else {
             return false;
@@ -288,7 +261,7 @@ static bool robotsMatch(const string& path, const string& rule) {
 
     // Handle trailing * in rule
     while (ri < ruleLen && rule[ri] == '*') ri++;
-    
+
     // If we finished the rule:
     if (ri == ruleLen) {
         return true; // Match! (Prefix match successful)
@@ -306,7 +279,7 @@ static bool robotsMatch(const string& path, const string& rule) {
 bool RobotsManager::canFetch(const string& url) {
 
     string host = extractHost(url);
-    if (host.empty()) return false; 
+    if (host.empty()) return false;
 
     // Normalize empty path to "/"
     string path = extractPath(url);
@@ -329,18 +302,18 @@ bool RobotsManager::canFetch(const string& url) {
 
     for (const auto& rule : rules.allow) {
         if (robotsMatch(path, rule)) {
-             if ((int)rule.length() > best_allow_len) best_allow_len = (int)rule.length();
+            if ((int)rule.length() > best_allow_len) best_allow_len = (int)rule.length();
         }
     }
 
     for (const auto& rule : rules.disallow) {
-         if (robotsMatch(path, rule)) {
-             if ((int)rule.length() > best_disallow_len) best_disallow_len = (int)rule.length();
+        if (robotsMatch(path, rule)) {
+            if ((int)rule.length() > best_disallow_len) best_disallow_len = (int)rule.length();
         }
     }
 
     if (best_allow_len == -1 && best_disallow_len == -1) return true;
-    
+
     // google/rfc: "The longest rule matches"
     return (best_allow_len >= best_disallow_len);
 }

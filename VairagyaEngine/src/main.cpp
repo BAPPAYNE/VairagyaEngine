@@ -32,6 +32,7 @@ using namespace argparse;
 
 atomic<bool> g_running{ true };
 atomic<bool> g_shutdown_message_printed{ false };
+mutex g_io_mtx;
 ArgumentParser program("VairagyaEngine");
 
 // Inline helper to initialize database schema and CFs
@@ -66,25 +67,25 @@ void handle_sigint(int) {
 // Utility Functions
 inline const char* enum_to_string(net::FetchStatus status) {
     switch (status) {
-        case net::FetchStatus::SUCCESS: return "SUCCESS";
-        case net::FetchStatus::FAILED: return "FAILED";
-        case net::FetchStatus::TIMEOUT: return "TIMEOUT";
-        case net::FetchStatus::NOT_FOUND: return "NOT_FOUND";
-        case net::FetchStatus::UNAUTHORIZED: return "UNAUTHORIZED";
-        case net::FetchStatus::FORBIDDEN: return "FORBIDDEN";
-        case net::FetchStatus::SERVER_ERROR: return "SERVER_ERROR";
-        case net::FetchStatus::UNKNOWN_ERROR: return "UNKNOWN_ERROR";
-        default: return "INVALID_STATUS";
+    case net::FetchStatus::SUCCESS: return "SUCCESS";
+    case net::FetchStatus::FAILED: return "FAILED";
+    case net::FetchStatus::TIMEOUT: return "TIMEOUT";
+    case net::FetchStatus::NOT_FOUND: return "NOT_FOUND";
+    case net::FetchStatus::UNAUTHORIZED: return "UNAUTHORIZED";
+    case net::FetchStatus::FORBIDDEN: return "FORBIDDEN";
+    case net::FetchStatus::SERVER_ERROR: return "SERVER_ERROR";
+    case net::FetchStatus::UNKNOWN_ERROR: return "UNKNOWN_ERROR";
+    default: return "INVALID_STATUS";
     }
 }
 
-inline const char *enum_to_string(URLStatus status) {
+inline const char* enum_to_string(URLStatus status) {
     switch (status) {
-        case URLStatus::INVALID_URL: return "INVALID";
-        case URLStatus::RELATIVE_URL: return "RELATIVE";
-        case URLStatus::DISALLOWED_URL: return "DISALLOWED";
-        case URLStatus::ACCEPTED_URL: return "ACCEPTED";
-        default: return "INVALID_STATUS";
+    case URLStatus::INVALID_URL: return "INVALID";
+    case URLStatus::RELATIVE_URL: return "RELATIVE";
+    case URLStatus::DISALLOWED_URL: return "DISALLOWED";
+    case URLStatus::ACCEPTED_URL: return "ACCEPTED";
+    default: return "INVALID_STATUS";
     }
 }
 
@@ -166,42 +167,38 @@ inline void setupArgumentParser() {
 
 }
 
-inline int parseArguments(int &argc, char *argv[]) {
+inline int parseArguments(int& argc, char* argv[]) {
     setupArgumentParser();
 
     try {
         if (argc <= 1) {
-            cout << "[INFO] No CLI flags specified. Defaulting to crawl database mode "
-                 << "with link crawling, robots ignored, and database 'vairagya_db'."
-                 << endl;
+            cout << "[INFO] No CLI flags specified. Using default crawler args.\n";
 
             static vector<string> defaultArgs = {
                 argv[0],
-                "--mode",
-                "api",
-				"--port",
-				"12345",
-                //"-cd",
-                //"-cl",
-                //"-ir",
-                //"-t",
-                //"30",
-                "-db",
-                "vairagya_db"
+                "--mode", "crawler",
+                "-d", "https://cplusplus.com/",
+                "-db", "vairagya_db",
+                "-t", "5",
+                "-sd",
+                "-cl"
             };
+
             vector<char*> defaultArgv;
             defaultArgv.reserve(defaultArgs.size());
+
             for (auto& arg : defaultArgs) {
                 defaultArgv.push_back(arg.data());
             }
 
             int defaultArgc = static_cast<int>(defaultArgv.size());
             program.parse_args(defaultArgc, defaultArgv.data());
-        } else {
+        }
+        else {
             program.parse_args(argc, argv);
         }
     }
-    catch (const exception &err) {
+    catch (const exception& err) {
         cerr << "[ERROR] Argument parsing failed: " << err.what() << endl;
         cerr << program;
         return 1;
@@ -212,7 +209,7 @@ inline int parseArguments(int &argc, char *argv[]) {
 // Seed URL Loading
 inline vector<string> loadSeedUrls() {
     vector<string> seedUrls;
-    
+
     // 1. Check for single domain argument first
     string single_domain = program.get<string>("--domain");
     if (!single_domain.empty()) {
@@ -228,11 +225,12 @@ inline vector<string> loadSeedUrls() {
             cout << "[INFO] Loading URLs from: " << list_path << endl;
             seedUrls = fetchLinesFromFile(list_path);
             if (seedUrls.empty()) {
-                 cerr << "[WARNING] File is empty. Utilizing default seed URLs." << endl;
+                cerr << "[WARNING] File is empty. Utilizing default seed URLs." << endl;
             }
-        } else {
-             cerr << "[ERROR] Invalid file path provided: " << list_path << endl;
-             return {};  // Return empty vector to signal error
+        }
+        else {
+            cerr << "[ERROR] Invalid file path provided: " << list_path << endl;
+            return {};  // Return empty vector to signal error
         }
     }
 
@@ -241,7 +239,7 @@ inline vector<string> loadSeedUrls() {
         cout << "[ERROR] No URL specified." << endl;
         exit(1);
     }
-    
+
     return seedUrls;
 }
 
@@ -258,7 +256,7 @@ inline void extractAllowedDomains(const vector<string>& seedUrls) {
     if (!same_domain) {
         return;  // Skip if same-domain mode is not enabled
     }
-    
+
     for (const auto& url : seedUrls) {
         string test_url = url;
         // Auto-prepend scheme if missing
@@ -270,14 +268,16 @@ inline void extractAllowedDomains(const vector<string>& seedUrls) {
             if (parsed) {
                 string domain = string(parsed->host());
                 allowed_domains.insert(domain);
-            } else {
+            }
+            else {
                 cerr << "[WARNING] Could not parse domain from: " << url << endl;
             }
-        } catch (...) {
+        }
+        catch (...) {
             cerr << "[WARNING] Exception parsing domain from: " << url << endl;
         }
     }
-    
+
     // Display allowed domains
     cout << "[INFO] Same-domain mode enabled. Allowed domains: ";
     for (const auto& domain : allowed_domains) {
@@ -302,11 +302,11 @@ inline void setupSignalHandlers() {
 #endif
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
     // Setup signal handlers for graceful shutdown
     setupSignalHandlers();
-    
+
     if (parseArguments(argc, argv) != 0) {
         return 1;
     }
@@ -325,11 +325,11 @@ int main(int argc, char *argv[])
     if (program.get<bool>("--remove-duplicates")) {
         auto stats = db->removeDuplicateURLs();
         cout << "[DEDUP] Removed duplicate document records: "
-             << stats.duplicate_doc_records_removed << "\n";
+            << stats.duplicate_doc_records_removed << "\n";
         cout << "[DEDUP] Removed duplicate domain-index entries: "
-             << stats.duplicate_domain_index_entries_removed << "\n";
+            << stats.duplicate_domain_index_entries_removed << "\n";
         cout << "[DEDUP] Removed duplicate pending URLs: "
-             << stats.duplicate_pending_urls_removed << "\n";
+            << stats.duplicate_pending_urls_removed << "\n";
         if (stats.next_doc_id_repaired) {
             cout << "[DEDUP] Repaired next_doc_id: " << stats.next_doc_id << "\n";
         }
@@ -362,7 +362,8 @@ int main(int argc, char *argv[])
             return 1;
         }
         cout << "[INFO] Resuming " << seedUrls.size() << " pending URLs from DB." << endl;
-    } else if (program.get<bool>("--crawl-database")) {
+    }
+    else if (program.get<bool>("--crawl-database")) {
         // Load all URLs from DB (implement db->getAllUrls() as needed)
         seedUrls = db->getUrlsBatch(100); // Example batch size
         if (seedUrls.empty()) {
@@ -370,16 +371,19 @@ int main(int argc, char *argv[])
             return 1;
         }
         cout << "[INFO] Loaded " << seedUrls.size() << " URLs from DB." << endl;
-    } else if (program.is_used("--domain")) {
+    }
+    else if (program.is_used("--domain")) {
         string single_domain = program.get<string>("--domain");
         cout << "[INFO] Using single domain from CLI: " << single_domain << endl;
         seedUrls.push_back(single_domain);
-    } else if (program.is_used("--list")) {
+    }
+    else if (program.is_used("--list")) {
         string list_path = program.get<string>("--list");
         if (isValidPath(list_path)) {
             cout << "[INFO] Loading URLs from: " << list_path << endl;
             seedUrls = fetchLinesFromFile(list_path);
-        } else {
+        }
+        else {
             cerr << "[ERROR] Invalid file path provided: " << list_path << endl;
             return 1;
         }
@@ -400,4 +404,3 @@ int main(int argc, char *argv[])
     cout << "[EXIT] Crawler stopped cleanly\n";
     return 0;
 }
-

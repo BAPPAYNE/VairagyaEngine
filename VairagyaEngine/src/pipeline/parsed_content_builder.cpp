@@ -12,7 +12,7 @@ ParsedContent ParsedContentBuilder::build(const string& html_content) {
     content.clean_text = cleanText(html_content);
     content.token_count = (uint32_t)count_if(content.clean_text.begin(), content.clean_text.end(), [](char c) {
         return isspace(static_cast<unsigned char>(c));
-    }) + 1;
+        }) + 1;
     return content;
 }
 
@@ -38,12 +38,20 @@ string ParsedContentBuilder::extractDescription(const string& html) {
 }
 
 string ParsedContentBuilder::cleanText(const string& html) {
-    // Basic boilerplate removal: kill scripts, styles, and tags
-    string text = regex_replace(html, regex(R"(<(script|style|noscript|svg|canvas)\b[^>]*>[\s\S]*?</\1>)", regex::icase | regex::optimize), " ");
-    text = regex_replace(text, regex(R"(<!--[\s\S]*?-->)", regex::optimize), " ");
-    text = regex_replace(text, regex(R"(<[^>]+>)", regex::optimize), " ");
-    
-    // Normalize whitespace
-    text = regex_replace(text, regex(R"(\s+)", regex::optimize), " ");
+    // Compile each pattern once (these were rebuilt on every page) and bound the
+    // input: std::regex with a backreference (the </\1> below) backtracks, and on
+    // very large pages that can blow the stack. Cap the slice we feed it.
+    static constexpr size_t MAX_HTML_BYTES = 4u * 1024 * 1024; // 4 MB
+    const string src = html.size() > MAX_HTML_BYTES ? html.substr(0, MAX_HTML_BYTES) : html;
+
+    static const regex script_style(R"(<(script|style|noscript|svg|canvas)\b[^>]*>[\s\S]*?</\1>)", regex::icase | regex::optimize);
+    static const regex comments(R"(<!--[\s\S]*?-->)", regex::optimize);
+    static const regex tags(R"(<[^>]+>)", regex::optimize);
+    static const regex spaces(R"(\s+)", regex::optimize);
+
+    string text = regex_replace(src, script_style, " ");
+    text = regex_replace(text, comments, " ");
+    text = regex_replace(text, tags, " ");
+    text = regex_replace(text, spaces, " ");
     return text;
 }

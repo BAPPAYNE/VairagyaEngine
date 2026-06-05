@@ -1,8 +1,10 @@
-#include "utils/utils.h" 
+#include "utils/utils.h"
 
 #include <sys/stat.h>
 #include <fstream>
 #include <algorithm>
+#include <cstdint>   // uint32_t etc. (MSVC pulls this in transitively; GCC/Clang do not)
+#include <string>
 
 using namespace std;
 
@@ -17,7 +19,7 @@ bool isValidPath(const string& path) {
 
 vector<string> fetchLinesFromFile(const string& path) {
     ifstream file(path);
-    
+
     vector<string> res;
     string line;
     if (file.is_open()) {
@@ -54,7 +56,7 @@ string sanitizeUtf8Lossy(const string& input) {
 
     auto appendReplacement = [&output]() {
         output += replacement;
-    };
+        };
 
     for (size_t i = 0; i < input.size();) {
         const unsigned char byte = static_cast<unsigned char>(input[i]);
@@ -71,13 +73,16 @@ string sanitizeUtf8Lossy(const string& input) {
         if (byte >= 0xC2 && byte <= 0xDF) {
             expected = 2;
             codepoint = byte & 0x1F;
-        } else if (byte >= 0xE0 && byte <= 0xEF) {
+        }
+        else if (byte >= 0xE0 && byte <= 0xEF) {
             expected = 3;
             codepoint = byte & 0x0F;
-        } else if (byte >= 0xF0 && byte <= 0xF4) {
+        }
+        else if (byte >= 0xF0 && byte <= 0xF4) {
             expected = 4;
             codepoint = byte & 0x07;
-        } else {
+        }
+        else {
             appendReplacement();
             ++i;
             continue;
