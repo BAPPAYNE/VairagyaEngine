@@ -441,6 +441,52 @@ namespace storage {
         return urls;
     }
 
+    vector<string> RocksDBStore::getAllDocumentUrls(uint64_t limit) {
+        lock_guard<mutex> lock(mutex_);
+
+        vector<string> urls;
+        unordered_set<string> seen_urls;
+        if (!db_ || limit == 0) {
+            return urls;
+        }
+
+        auto doc_core_it = handles_.find(CF_DOC_CORE);
+        if (doc_core_it == handles_.end()) {
+            return urls;
+        }
+
+        rocksdb::ReadOptions ro;
+        ro.fill_cache = false;
+        ro.verify_checksums = false;
+        ro.readahead_size = 4 << 20;
+
+        unique_ptr<rocksdb::Iterator> it(db_->NewIterator(ro, doc_core_it->second));
+        for (it->SeekToFirst(); it->Valid() && urls.size() < limit; it->Next()) {
+            auto doc_json = json::parse(
+                it->value().data(),
+                it->value().data() + it->value().size(),
+                nullptr,
+                false
+            );
+            if (doc_json.is_discarded()) {
+                continue;
+            }
+
+            try {
+                DocCore doc = doc_json.get<DocCore>();
+                if (!doc.normalized_url.empty() && seen_urls.insert(doc.normalized_url).second) {
+                    urls.push_back(doc.normalized_url);
+                }
+            }
+            catch (...) {
+                // Skip malformed records so one bad document does not block DB crawling.
+            }
+        }
+
+        cout << "[DB] Loaded " << urls.size() << " stored document URL(s).\n";
+        return urls;
+    }
+
     void RocksDBStore::recordCrawlResult(
         const string& url_hash,
         const string& normalized_url,
