@@ -1,337 +1,662 @@
-# VairagyaEngine Crawler Project Information
+# VairagyaEngine Project Information — Latest Handoff
 
-This file is a handoff document for building a separate search engine project on top of the data produced by VairagyaEngine. It explains what the crawler does, how it stores crawled pages, which fields matter for search, and how another project can fetch relevant data based on user queries and custom filters.
+> Updated from the uploaded `VairagyaEngine.7z` project snapshot and the current crawler/search-engine design discussion.
 
-## Project Summary
+## 1. Project Summary
 
-VairagyaEngine is a C++20 web crawler. It accepts seed URLs, fetches pages over HTTP/HTTPS, optionally extracts links for recursive crawling, parses useful page content, builds multiple metadata records, and stores everything in RocksDB.
-
-The crawler is not a full search engine yet. Its main output is a document database containing:
-
-- Normalized URL identity and URL hash
-- Fetch status, HTTP code, latency, crawl depth, and referrer
-- Parsed search content such as title, meta description, clean text, and token count
-- Content hashes and simhash values for duplicate or near-duplicate detection
-- Link statistics placeholders
-- Quality signals such as readability, spam score, and quality score
-- Presentation fields such as snippet, favicon, site name, breadcrumb, and display URL
-- Control flags such as robots allowance, noindex, nofollow, and index status
-
-A future search engine should read these stored records, build an inverted index or vector/semantic index, rank matching documents, and return search results using the presentation fields.
-
-## Repository Layout
+VairagyaEngine is a C++20 crawler plus lightweight local search API. It is no longer only a crawler/document-preparation project. The current codebase has two runtime modes:
 
 ```text
-D:\DEV\VairagyaEngine
-|-- CMakeLists.txt
-|-- CMakePresets.json
-|-- README.md
-|-- VairagyaEngine
-    |-- include
-    |   |-- crawler
-    |   |-- host
-    |   |-- html
-    |   |-- net
-    |   |-- pipeline
-    |   |-- storage
-    |   |-- url
-    |   |-- utils
-    |-- src
-    |   |-- crawler
-    |   |-- host
-    |   |-- html
-    |   |-- net
-    |   |-- pipeline
-    |   |-- storage
-    |   |-- url
-    |   |-- utils
-    |-- external
-        |-- simHash-cpp
+--mode crawler  -> crawl/fetch/parse/store pages into RocksDB
+--mode api      -> load stored documents, build an in-memory search index, expose HTTP search endpoints
 ```
 
-Important modules:
+The crawler layer fetches HTTP/HTTPS pages, checks robots rules unless disabled, parses useful content, extracts links, stores document records into RocksDB, records recrawl state, and saves pending frontier URLs for resume.
 
-- `src/main.cpp`: CLI entry point, argument parsing, database initialization, seed loading, and crawler startup.
-- `crawler/engine.*`: Main crawl orchestration, worker threads, fetch pipeline, persistence, and link discovery.
-- `crawler/frontier.*`: In-memory crawl queue, per-host queues, URL deduplication state, retry state, and pending URL snapshots.
-- `crawler/scheduler.*`: Pulls the next URL from the frontier.
-- `net/fetcher.*`: HTTP/HTTPS GET fetcher implemented with Boost.Beast, Boost.Asio, and OpenSSL.
-- `net/response_classifier.*`: Maps HTTP status codes into OK, redirect, client error, server error, or network error classes.
-- `url/normalize.*`, `url/validate.*`, `url/process.*`: URL normalization, validation, crawlability checks, priority scoring, relative URL resolution, and reversed host generation.
-- `html/html_parser.*`: Extracts outgoing links from `href`, `src`, RSS/XML `loc`, and similar fields.
-- `host/robots_manager.*`: Fetches/parses/caches robots.txt rules and checks whether a URL is allowed.
-- `pipeline/*_builder.*`: Converts fetched content into structured records for storage and search.
-- `storage/db_schema.h`: Defines the JSON-serializable record structures and RocksDB column family names.
-- `storage/rocksdb_store.*`: Opens RocksDB, manages column families, reads/writes records, stores pending URLs, stores the next document id, and scans URL batches.
+The search layer reads RocksDB records, builds an in-memory inverted index, applies query processing, fuzzy token expansion, BM25-style ranking, snippet generation, and click tracking.
 
-## Build Dependencies
+Current important point: VairagyaEngine is still not a production-scale Google-like distributed engine. It is a single-machine crawler + RocksDB document store + in-memory API search engine.
 
-The project uses CMake and requires:
+---
 
-- C++20 compiler
-- Boost.URL
-- Boost.Beast / Boost.Asio through Boost
-- OpenSSL
-- RocksDB
-- nlohmann_json
-- The bundled `external/simHash-cpp`
-
-The executable target is `VairagyaEngine`.
-
-## CLI Behavior
-
-The crawler supports these main input modes:
-
-- `-d`, `--domain`: Crawl a single URL/domain.
-- `-l`, `--list`: Load seed URLs from a text file.
-- `-cd`, `--crawl-database`: Load URLs from the RocksDB domain index and crawl them as seeds.
-- `--resume-db`: Resume from pending URLs previously saved in RocksDB.
-
-Useful options:
-
-- `-cl`, `--crawl-links`: Enable link extraction and recursive crawling.
-- `-sd`, `--same-domain`: Restrict discovered links to the same domain or subdomains as the seed URLs.
-- `-ir`, `--ignore-robots`: Ignore robots.txt rules.
-- `-db`, `--database`: RocksDB database path. Default is `vairagya_db`.
-- `-t`, `--threads`: Number of crawler worker threads.
-- `-oj`, `--output-json`: JSON output log path.
-- `-o`, `--output`: TXT output log path.
-- `-v`, `--verbose`: Verbose logging flag.
-
-If no CLI flags are provided, `main.cpp` currently defaults to:
+## 2. Current Repository Layout
 
 ```text
--cd -cl -ir -t 30 -db vairagya_db
+VairagyaEngine
+├── CMakeLists.txt
+├── CMakePresets.json
+├── README.md
+├── CRAWLER_PROJECT_INFORMATION.md
+└── VairagyaEngine
+    ├── config
+    │   └── synonyms.json
+    ├── external
+    │   ├── simHash-cpp
+    │   └── tsl
+    ├── include
+    │   ├── api
+    │   ├── crawler
+    │   ├── host
+    │   ├── html
+    │   ├── net
+    │   ├── pipeline
+    │   ├── query
+    │   ├── storage
+    │   ├── url
+    │   └── utils
+    └── src
+        ├── api
+        ├── crawler
+        ├── host
+        ├── html
+        ├── net
+        ├── pipeline
+        ├── query
+        ├── storage
+        ├── url
+        └── utils
 ```
 
-That means it loads URLs from the existing database, crawls recursively, ignores robots.txt, uses 30 worker threads, and uses the database path `vairagya_db`.
+Important files:
 
-## Crawl Flow
+| Area | Files | Purpose |
+|---|---|---|
+| CLI/runtime | `src/main.cpp` | argument parsing, mode selection, DB open, seed loading |
+| Crawler engine | `crawler/engine.*` | worker threads, robots check, fetch, parse, store, link enqueue |
+| Frontier | `crawler/frontier.*` | per-host priority queues, URL states, retry state, pending snapshot |
+| Scheduler | `crawler/scheduler.*` | wrapper around frontier `popWait` |
+| Networking | `net/fetcher.*` | Boost.Beast HTTP/HTTPS GET fetcher |
+| Response classification | `net/response_classifier.*` | maps status code to OK/REDIRECT/CLIENT_ERROR/SERVER_ERROR/NETWORK_ERROR |
+| Robots | `host/robots_manager.*` | robots.txt parsing, allow/disallow matching, sitemap line parsing into rules |
+| HTML/link parsing | `html/html_parser.*` | regex link extraction from `href`, `src`, `loc`, `<link>`, `<loc>` |
+| URL processing | `url/normalize.*`, `url/validate.*`, `url/process.*` | normalization, validation, priority, relative resolution, reversed host |
+| Storage schema | `storage/db_schema.h` | JSON-serializable crawler DB records |
+| RocksDB storage | `storage/rocksdb_store.*` | column families, pending URLs, recrawl state, document loading, clicks |
+| Pipeline builders | `pipeline/*_builder.*` | builds `DocCore`, `ParsedContent`, `FetchMeta`, etc. |
+| Query/search | `query/*` | tokenizer, inverted index, ranker, snippets, result builder, query engine |
+| API | `api/search_api.*` | Crow HTTP API: `/search`, `/health`, `/stats`, `/click` |
 
-High-level flow:
+---
 
-1. `main.cpp` parses CLI options and opens RocksDB.
-2. Seed URLs are loaded from CLI, file, database scan, or pending database state.
-3. Same-domain restrictions are prepared if enabled.
-4. `crawler::runCrawler` creates an `Engine`.
-5. Seed URLs are normalized and pushed into the `Frontier`.
-6. Worker threads pop URLs from the frontier.
-7. For each URL:
-   - robots.txt is checked unless ignored.
-   - the page is fetched with `net::fetch`.
-   - the response is classified.
-   - successful parseable content is converted into storage records.
-   - records are persisted to RocksDB.
-   - discovered links are extracted, resolved, normalized, filtered, and queued.
-8. On shutdown, pending URLs are saved to RocksDB for resume support.
+## 3. Dependencies and Build
 
-## URL Handling
+The project target is `VairagyaEngine` and uses C++20.
 
-`processURL` is the central URL intake function. It:
+Required libraries:
 
-- Calls `normalizeURI`
-- Validates the URL
-- Extracts the scheme
-- Rejects non-crawlable schemes
-- Computes a crawl priority score
+```text
+Boost.URL
+Boost.Beast / Boost.Asio
+OpenSSL
+RocksDB
+nlohmann_json
+Crow
+```
 
-Accepted URLs must be absolute `http` or `https` URLs with a host.
+Bundled libraries:
 
-Normalization behavior:
+```text
+external/simHash-cpp
+external/tsl/robin_map / robin_set
+include/utils/argparse.hpp
+```
 
-- Uses Boost.URL normalization.
-- Removes URL fragments.
-- Removes default port `80` for HTTP and `443` for HTTPS.
-- Rejects URLs without scheme or host.
+`CMakeLists.txt` currently finds:
 
-Relative link handling:
+```cmake
+find_package(boost_url CONFIG REQUIRED)
+find_package(RocksDB CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(nlohmann_json REQUIRED)
+```
 
-- `resolveRelativeURL(raw, base_url)` resolves relative links against the current page URL.
-- Fragments-only URLs are ignored.
-- `mailto:`, `javascript:`, and `tel:` links are ignored.
-- Only `http` and `https` resolved URLs are allowed.
+Crow is included as `<crow.h>`, so Crow headers must be available to the compiler include path.
 
-Priority scoring:
+Build target sources include crawler, storage, pipeline, query, API, and simhash modules.
 
-- Base score is `50`.
-- Deeper paths reduce score.
-- Root-ish URLs, `.html`, and trailing slash URLs get a boost.
-- Static assets such as `.css`, `.js`, `.png`, `.jpg`, and `.svg` are penalized.
-- Score is clamped to `0..100`.
+---
 
-Domain index support:
+## 4. Runtime Modes
 
-- `reverseHost(url)` converts a host such as `www.example.com` to `com.example.www`.
-- RocksDB domain index keys use reversed host ordering for domain-oriented scans.
+### 4.1 Crawler Mode
 
-## Fetching
+```bash
+VairagyaEngine.exe --mode crawler -d https://cplusplus.com/ -db vairagya_db -sd -cl -t 2
+```
 
-`net::fetch(url, timeout_ms = 5000)` performs a GET request.
+Common crawler flags:
 
-Fetch behavior:
+| Flag | Meaning |
+|---|---|
+| `-d`, `--domain` | one seed URL |
+| `-l`, `--list` | seed URL list file |
+| `-cd`, `--crawl-database` | select due recrawl URLs from RocksDB |
+| `--resume-db` | load pending URLs from `__pending_urls__` |
+| `--remove-duplicates` | cleanup duplicate URL/domain/pending records then exit |
+| `-cl`, `--crawl-links` | enable recursive link extraction |
+| `-sd`, `--same-domain` | restrict discovered links to seed domains/subdomains |
+| `-ir`, `--ignore-robots` | skip robots.txt enforcement |
+| `-db`, `--database` | RocksDB path |
+| `-t`, `--threads` | worker thread count |
+| `-oj`, `--output-json` | JSON URL log output path |
+| `-o`, `--output` | TXT URL log output path |
 
-- Uses Boost.Beast for HTTP.
-- Uses OpenSSL for HTTPS.
-- Sets user agent to `VairagyaEngine/1.0`.
-- Uses SNI for HTTPS.
-- Default timeout is 5000 ms.
-- SSL verification is currently disabled with `ssl::verify_none`, crawler-style.
-- Returns the response body, HTTP code, latency, and content type.
+Current default args when no CLI flags are provided:
 
-`FetchResult` fields:
+```text
+--mode crawler -d https://cplusplus.com/ -db vairagya_db -t 5 -sd -cl
+```
+
+### 4.2 API Mode
+
+```bash
+VairagyaEngine.exe --mode api -db vairagya_db --port 8080
+```
+
+API mode opens the RocksDB database, loads searchable documents into an in-memory index, and starts Crow.
+
+Endpoints:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/search?q=...&page=1&limit=10` | GET | query search index |
+| `/health` | GET | health + searchable document count |
+| `/stats` | GET | basic document/cache stats |
+| `/click?doc_id=123` | GET/POST | increments click count for a result |
+
+Example result object:
+
+```json
+{
+  "doc_id": 1,
+  "title": "Example Page",
+  "url": "https://example.com/page",
+  "display_url": "https://example.com/page",
+  "favicon_url": "/favicon.ico",
+  "language": "en",
+  "snippet": "Query-aware snippet...",
+  "score": 12.34,
+  "last_fetched_time": 1710000000,
+  "quality_score": 0.81
+}
+```
+
+---
+
+## 5. Current Crawl Flow
+
+Crawler flow in `Engine::processItem`:
+
+```text
+FrontierItem
+  ↓
+robots.txt check unless ignore_robots=true
+  ↓
+net::fetch(url)
+  ↓
+net::classify(result)
+  ↓
+OK / REDIRECT / CLIENT_ERROR / SERVER_ERROR / NETWORK_ERROR handling
+  ↓
+For HTTP 200 parseable content:
+    build DocCore
+    assign/reuse doc_id
+    build ParsedContent / FetchMeta / ContentMeta / LinkData / QualitySignals / Presentation / ControlFlags
+    write all records into RocksDB
+    record recrawl state
+    extract links if -cl enabled
+    resolve + process + same-domain check + robots check + enqueue
+  ↓
+mark fetched / failed / retry / disallowed in Frontier
+```
+
+Important behavior:
+
+- Only `HTTP 200` enters the document-building pipeline.
+- Redirects are currently terminal; they are recorded but not followed.
+- `4xx` responses are currently terminal failures.
+- `5xx` and network errors are retryable.
+- `429` is currently treated as `CLIENT_ERROR` because it is `4xx`; this should be changed to host-level throttling/backoff later.
+- Worker threads use `frontier.popWait(g_running)` and stop when no queued URLs and no active workers remain.
+
+---
+
+## 6. URL Processing
+
+Current archive code has:
 
 ```cpp
-FetchStatus status;
-string content;
-uint16_t http_code;
-long long fetch_time_ms;
-string content_type;
+struct ProcessedURL {
+    string original;
+    string normalized;
+    URLStatus status;
+    int priority;
+    SchemeType scheme;
+    Crawlability crawlability;
+};
 ```
 
-Response classification:
+Your latest intended design adds:
 
-- HTTP `2xx` -> `OK`
-- HTTP `3xx` -> `REDIRECT`
-- HTTP `4xx` -> `CLIENT_ERROR`
-- HTTP `5xx` -> `SERVER_ERROR`
-- HTTP code `0` -> `NETWORK_ERROR`
+```cpp
+ResourceType resource_type;
+```
 
-Redirects are currently treated as terminal fetched results. The fetcher does not currently follow redirects.
+Recommended latest struct:
 
-## Parseable Content Rules
+```cpp
+struct ProcessedURL {
+    string original = "";
+    string normalized = "";
+    URLStatus status = URLStatus::INVALID_URL;
+    int priority = 0;
+    SchemeType scheme = SchemeType::NONE;
+    Crawlability crawlability = Crawlability::NON_CRAWLABLE;
+    ResourceType resource_type = ResourceType::UNKNOWN;
+};
+```
 
-For HTTP 200 responses, the crawler decides whether content is parseable.
+Current URL rules:
 
-Parseable content types:
+- URL must normalize successfully.
+- URL must be absolute.
+- Scheme must be `http` or `https`.
+- `mailto:`, `javascript:`, `tel:` are rejected during relative resolution.
+- Fragments are removed during relative resolution.
+- `priorityScore()` returns `0..100`.
 
-- `text/html`
-- `text/plain`
-- `application/rss+xml`
-- `application/xml`
-- `application/xhtml+xml`
-- empty content type, with fallback URL extension checks
-
-Excluded URL patterns include:
-
-- `.woff`
-- `.woff2`
-- `.ttf`
-- `.gif`
-- `.ico`
-- `.zip`
-- `.gz`
-- `.bin`
-- `.js`
-- `.css`
-
-Only parseable content is passed into the text parsing and link extraction pipeline.
-
-## Link Extraction
-
-`extractLinks(content)` uses a regex-based parser to extract:
-
-- `href="..."`
-- `src="..."`
-- `loc="..."`
-- XML/RSS-style `<link>...</link>`
-- XML/RSS-style `<loc>...</loc>`
-
-Discovered links are:
-
-1. Trimmed.
-2. Resolved relative to the current page.
-3. Normalized and validated with `processURL`.
-4. Checked against same-domain restrictions if enabled.
-5. Checked against robots rules unless robots are ignored.
-6. Filtered through `isHtmlPageUrl`.
-7. Added back to the frontier with increased crawl depth and the current URL as referrer.
-
-## Robots.txt Handling
-
-Robots behavior lives in `host/robots_manager.*`.
-
-When `ignore_robots` is false:
-
-- The crawler builds the robots URL as `{origin}/robots.txt`.
-- It fetches robots.txt once per host and caches rules in memory.
-- It parses `User-agent`, `Allow`, `Disallow`, and `Sitemap` lines.
-- It applies rules for `VairagyaEngine` and `*`.
-- It uses longest matching rule behavior where allow wins if it is at least as specific as disallow.
-- Wildcards `*` and end anchors `$` are supported in matching.
-
-When `ignore_robots` is true:
-
-- robots.txt fetching and blocking are skipped.
-
-Important for the future search engine:
-
-- `ControlFlags.robots_allowed` exists in the schema.
-- Current `ControlFlagsBuilder::build` is called with `true` for successfully indexed pages.
-- If strict robots/noindex enforcement is required in the search engine, verify and enforce `noindex`, `nofollow`, and robots decisions before serving documents.
-
-## Frontier, Retries, and Resume
-
-The frontier is currently in-memory while the crawler runs.
-
-It tracks:
-
-- Per-host queues
-- URL state by normalized URL
-- Fetch status
-- HTTP status
-- Retry count
-- Last fetch timestamp
-- Crawl stats
-
-Retry behavior:
-
-- `MAX_RETRY_COUNT` is `3`.
-- Server errors and network errors are retryable.
-- Client errors are terminal failures.
-- Retry entries are pushed back to the frontier.
-
-Resume behavior:
-
-- `RocksDBStore::savePendingURLs` stores a JSON array under key `__pending_urls__` in the default column family.
-- `RocksDBStore::loadPendingURLs` reads that JSON array.
-- `--resume-db` uses these pending URLs as seeds.
-
-## RocksDB Storage Model
-
-The crawler stores records in RocksDB column families. The primary join key for document records is:
+Important current design decision:
 
 ```text
-doc_core.url_hash = sha256(normalized_url)
+priority == 0 does not necessarily mean invalid.
+It can mean lowest priority.
+A URL should be skipped based on status/crawlability/resource type, not only priority.
 ```
 
-Most column families use `url_hash` as the key and a JSON object as the value.
+Recommended resource classification:
 
-Column families:
+| ResourceType | Fetch body? | Index as web text? | Notes |
+|---|---:|---:|---|
+| `HTML_PAGE` | yes | yes | normal pages |
+| `TEXT_DOCUMENT` | yes | yes | `.txt`, `.md`, `.rst`, RFC txt files |
+| `SITEMAP_XML` | yes | no | parse `<loc>` and enqueue URLs |
+| `PDF_DOCUMENT` | later | later | needs PDF text extraction |
+| `IMAGE` | no body | no | store metadata from HTML later |
+| `VIDEO` | no body | no | store metadata from HTML later |
+| `AUDIO` | no body | no | store metadata from HTML later |
+| `STATIC_ASSET` | no | no | CSS/JS/fonts/archives/executables |
+
+Recommended `shouldFetchBody`:
+
+```cpp
+bool shouldFetchBody(ResourceType type) {
+    return type == ResourceType::HTML_PAGE ||
+           type == ResourceType::TEXT_DOCUMENT ||
+           type == ResourceType::SITEMAP_XML;
+}
+```
+
+---
+
+## 7. Frontier and Scheduling
+
+`Frontier` currently uses per-host queues:
+
+```cpp
+unordered_map<string, HostState> hostQueue;
+```
+
+Each host has:
+
+```cpp
+priority_queue<FrontierItem, vector<FrontierItem>, FrontierItemPriority> urlQueue;
+```
+
+`FrontierItem`:
+
+```cpp
+struct FrontierItem {
+    string normalized_url;
+    int priority;
+    uint8_t retry_count;
+    int depth;
+    string referrer_url;
+};
+```
+
+Priority comparator:
+
+```cpp
+return left.priority < right.priority;
+```
+
+That means higher priority values are popped first inside a host queue.
+
+Current limitations:
+
+- Host selection loops through an `unordered_map`, so host-level fairness is not deterministic.
+- There is no active host-level cooldown/429 pause system yet.
+- `rate_limit.h`, `rate_limit.cpp`, `resolver.h`, and `resolver.cpp` are currently empty in the uploaded archive.
+- Retry puts failed URL back into the host queue until `MAX_RETRY_COUNT`.
+- Pending resume stores only URLs, not priority/depth/referrer/retry count.
+
+Recommended next frontier design for 429:
+
+```text
+ready_hosts queue
+paused_hosts_429 min-heap by wake_time
+host_queues map<host, priority_queue<FrontierItem>>
+```
+
+Do not move all URLs from host queue to a retry URL queue. Pause the host and keep its URLs in its per-host queue.
+
+---
+
+## 8. Robots.txt Handling
+
+`RobotsManager` currently:
+
+- Builds robots URL as `{origin}/robots.txt`.
+- Fetches robots lazily in `Engine::processItem` if host rules are not cached.
+- Parses `User-agent`, `Allow`, `Disallow`, and `Sitemap`.
+- Keeps specific-agent rules separate from wildcard rules.
+- Specific crawler group overrides wildcard group if present.
+- Uses longest-match behavior; allow wins when allow length is at least disallow length.
+- Supports `*` wildcard and trailing `$` anchor in rule matching.
+
+Current crawler behavior:
+
+```text
+if ignore_robots=false:
+    fetch robots.txt once per host
+    cache rules in memory
+    block URL if canFetch(url) is false
+else:
+    do not fetch/check robots
+```
+
+Current limitation:
+
+- `Sitemap:` lines are parsed into `RobotsRules.sitemaps`, but the crawler does not yet automatically enqueue them.
+- `crawl-delay` is not parsed/enforced.
+- Robots decisions are not persisted as full per-URL policy history.
+
+Recommended improvement:
+
+```text
+After robots fetch:
+  for each rules.sitemaps:
+      addURL(sitemap_url, 0, "ROBOTS_SITEMAP")
+```
+
+---
+
+## 9. Fetching
+
+`net::fetch(url, timeout_ms = 5000)` uses Boost.Beast.
+
+Behavior:
+
+- Supports HTTP and HTTPS.
+- Uses OpenSSL for HTTPS.
+- Sets SNI for HTTPS.
+- Uses `VairagyaEngine/1.0` user agent.
+- Default timeout: 5000 ms.
+- SSL verification is currently disabled: `ssl::verify_none`.
+- Uses system DNS resolver through Boost.Asio.
+
+Current `FetchResult`:
+
+```cpp
+struct FetchResult {
+    FetchStatus status;
+    string content;
+    uint16_t http_code;
+    long long fetch_time_ms;
+    string content_type;
+};
+```
+
+Recommended additions:
+
+```cpp
+long long retry_after_ms = 0;
+string redirect_url = "";
+```
+
+Why:
+
+- `retry_after_ms` is needed for `429 Too Many Requests`.
+- `redirect_url` is needed to follow `Location` on `3xx` responses.
+
+---
+
+## 10. Response Classification
+
+Current behavior:
+
+```text
+2xx -> OK
+3xx -> REDIRECT
+4xx -> CLIENT_ERROR
+5xx -> SERVER_ERROR
+0   -> NETWORK_ERROR
+```
+
+Crawler handling:
+
+| Class | Current handling |
+|---|---|
+| OK + 200 | parse/store/index/extract links |
+| REDIRECT | terminal record, not followed |
+| CLIENT_ERROR | terminal failed |
+| SERVER_ERROR | retryable |
+| NETWORK_ERROR | retryable |
+
+Recommended changes:
+
+- Treat `429` specially, not like normal `4xx`.
+- Parse `Retry-After` header.
+- Pause only the host that returned `429`.
+- Follow redirects up to a max redirect count.
+- Store redirect aliases and canonical target.
+
+---
+
+## 11. Parseable Content and Resource Types
+
+Current archive code decides parseability after fetching by checking content type and some file extensions.
+
+Parseable content types currently include:
+
+```text
+text/html
+text/plain
+application/rss+xml
+application/xml
+application/xhtml+xml
+empty content-type fallback
+```
+
+Excluded by URL extension:
+
+```text
+.woff, .woff2, .ttf, .gif, .ico, .zip, .gz, .bin, .js, .css
+```
+
+Recommended latest behavior:
+
+```text
+HTML_PAGE      -> parse HTML, index text, extract links/media
+TEXT_DOCUMENT  -> text parser, index text, no HTML parsing
+SITEMAP_XML    -> parse <loc>, enqueue URLs, do not index sitemap itself
+IMAGE/VIDEO/AUDIO -> do not download body; store metadata later from HTML
+STATIC_ASSET   -> skip
+```
+
+Important example:
+
+```text
+https://www.rfc-editor.org/rfc/rfc1264.txt
+```
+
+This should be treated as `TEXT_DOCUMENT`, fetched, stored as clean text, and indexed. It is not a static asset.
+
+Important sitemap example:
+
+```text
+https://www.netacad.com/sitemap.xml
+```
+
+This should be treated as `SITEMAP_XML`, fetched, parsed for `<loc>` URLs, and not indexed as a normal searchable page.
+
+---
+
+## 12. Link Extraction
+
+Current `extractLinks(content)` uses one regex to extract:
+
+```text
+href="..."
+src="..."
+loc="..."
+<link>...</link>
+<loc>...</loc>
+```
+
+Current link pipeline:
+
+```text
+raw link
+  ↓
+resolveRelativeURL(raw, current_url)
+  ↓
+processURL(resolved)
+  ↓
+same-domain filter if enabled
+  ↓
+robotsManager.canFetch if robots enabled
+  ↓
+isHtmlPageUrl(processed.normalized)
+  ↓
+addURL(processed.normalized, depth + 1, current_url)
+```
+
+Current limitation:
+
+- The final `isHtmlPageUrl()` check blocks some assets but is too simple.
+- It can allow XML/sitemap as normal pages or block future non-HTML searchable resources incorrectly.
+- Resource-type based filtering should replace `isHtmlPageUrl()`.
+
+Recommended latest enqueue condition:
+
+```cpp
+ProcessedURL p = processURL(resolved_url);
+
+if (p.status != URLStatus::ACCEPTED_URL) return;
+if (p.crawlability != Crawlability::CRAWLABLE) return;
+if (!shouldFetchBody(p.resource_type)) return;
+if (!domain_allowed) return;
+if (!ignore_robots && !robotsManager.canFetch(p.normalized)) return;
+
+addURL(p.normalized, depth + 1, current_url);
+```
+
+Do not reject only because `p.priority == 0`.
+
+---
+
+## 13. Media Search Design
+
+For Images/Videos/Audio tabs, do not download media bodies in the main crawler.
+
+Correct approach:
+
+```text
+fetch HTML
+  ↓
+extract media metadata from raw HTML before discarding raw HTML
+  ↓
+store media URL + source page + alt/title/surrounding text
+  ↓
+frontend renders media search results using metadata
+```
+
+Recommended future records:
+
+```cpp
+struct ImageRecord {
+    uint64_t image_id;
+    uint64_t source_doc_id;
+    string image_url;
+    string source_page_url;
+    string alt_text;
+    string page_title;
+    string surrounding_text;
+    int width = 0;
+    int height = 0;
+    time_t discovered_at = 0;
+};
+```
+
+Similar records can be added for videos and audio.
+
+Frontend tabs can call:
+
+```text
+/search?q=cpp&type=web
+/search?q=cpp&type=images
+/search?q=cpp&type=videos
+/search?q=cpp&type=audio
+/search?q=cpp&type=documents
+```
+
+Current API does not yet implement `type=` tabs.
+
+---
+
+## 14. RocksDB Storage Model
+
+Column families from `db_schema.h`:
 
 | Column family | Key | Value | Purpose |
 |---|---|---|---|
-| `default` | internal keys | strings or JSON | `next_doc_id`, scan cursor, pending URLs |
+| `default` | internal keys | strings/JSON | pending URLs, next doc id, recrawl state, clicks |
 | `doc_core_cf` | `url_hash` | `DocCore` JSON | identity and URL metadata |
-| `domain_index_cf` | `d:{reversed_host}|/|{doc_id}` | `url_hash` | domain-ordered scan index |
+| `domain_index_cf` | `d:{reversed_host}|/|{doc_id}` | `url_hash` | domain-ordered lookup |
 | `fetch_meta_cf` | `url_hash` | `FetchMeta` JSON | fetch metadata |
-| `content_meta_cf` | `url_hash` | `ContentMeta` JSON | hashes and duplicate signals |
+| `content_meta_cf` | `url_hash` | `ContentMeta` JSON | content hash/simhash/duplicate fields |
 | `parsed_content_cf` | `url_hash` | `ParsedContent` JSON | title, description, clean text |
-| `link_graph_cf` | `url_hash` | `LinkData` JSON | link metrics |
-| `quality_cf` | `url_hash` | `QualitySignals` JSON | quality and spam signals |
-| `presentation_cf` | `url_hash` | `Presentation` JSON | snippet and display fields |
-| `control_cf` | `url_hash` | `ControlFlags` JSON | noindex/nofollow/index state |
+| `link_graph_cf` | `url_hash` | `LinkData` JSON | link counts and PageRank placeholder |
+| `quality_cf` | `url_hash` | `QualitySignals` JSON | quality/spam/readability/freshness fields |
+| `presentation_cf` | `url_hash` | `Presentation` JSON | snippet/favicon/display URL |
+| `control_cf` | `url_hash` | `ControlFlags` JSON | robots/noindex/nofollow/index status |
 
-Internal default column family keys:
+Internal default keys:
 
-- `next_doc_id`: next numeric document id to assign.
-- `__pending_urls__`: JSON array of pending URLs for resume.
-- `__scan_cursor__`: cursor used by `getUrlsBatch` when scanning `domain_index_cf`.
+| Key | Purpose |
+|---|---|
+| `next_doc_id` | next numeric document id |
+| `__pending_urls__` | JSON array of pending URLs for resume |
+| `recrawl:{url_hash}` | recrawl scheduling state |
+| `click:{doc_id}` | click count for API ranking/click tracking |
 
-## Stored Record Schemas
+Primary join key:
 
-### DocCore
+```text
+url_hash = sha256(normalized_url)
+```
 
-Stored in `doc_core_cf`.
+Current limitation:
+
+- Canonical URL exists in `DocCore`, but `url_hash` is still based on normalized URL, not canonical URL.
+- Site-specific canonicalization like RFC Editor variants should be added before dedup/indexing.
+
+---
+
+## 15. Stored Record Schemas
+
+### 15.1 DocCore
 
 ```json
 {
@@ -346,27 +671,15 @@ Stored in `doc_core_cf`.
 }
 ```
 
-Fields:
+Use:
 
-- `doc_id`: Internal numeric id. Assigned by `RocksDBStore::getNextDocId`.
-- `normalized_url`: Canonical crawler URL after normalization.
-- `url_hash`: SHA-256 of normalized URL. Main key across column families.
-- `canonical_url`: Extracted from HTML `<link rel="canonical" href="...">` if present.
-- `first_seen_time`: Unix timestamp.
-- `language_code`: Extracted from `<html lang="...">`; defaults to `en`.
-- `charset`: Extracted from meta charset; defaults to `UTF-8`.
-- `content_type`: Extracted from meta content type; defaults to `text/html`.
+- identity
+- clickable URL
+- language filter
+- join key across CFs
+- domain index lookup
 
-Search engine use:
-
-- Use `doc_id` as compact internal id.
-- Use `url_hash` to join records.
-- Use `normalized_url` as the final clickable URL unless `canonical_url` rules say otherwise.
-- Use `language_code` for language filtering or language-specific analyzers.
-
-### FetchMeta
-
-Stored in `fetch_meta_cf`.
+### 15.2 FetchMeta
 
 ```json
 {
@@ -382,16 +695,14 @@ Stored in `fetch_meta_cf`.
 }
 ```
 
-Search engine use:
+Use:
 
-- Filter to successful documents with `fetch_status_code == 200`.
-- Use `last_fetched_time` for freshness ranking.
-- Use `crawl_depth` as a weak quality/trust feature.
-- Use `content_length_bytes` to filter empty or extremely small documents.
+- skip non-200 documents
+- freshness ranking
+- crawl depth penalty
+- content length filtering
 
-### ContentMeta
-
-Stored in `content_meta_cf`.
+### 15.3 ContentMeta
 
 ```json
 {
@@ -402,55 +713,35 @@ Stored in `content_meta_cf`.
 }
 ```
 
-Search engine use:
+Use:
 
-- Use `content_hash` for exact duplicate detection.
-- Use `simhash` for near-duplicate clustering.
-- Prefer one canonical document per duplicate cluster.
-- `is_duplicate` and `canonical_doc_id` are currently basic fields and need stronger duplicate resolution if search quality matters.
+- exact duplicate detection
+- near duplicate detection
+- duplicate suppression in search
 
-### ParsedContent
-
-Stored in `parsed_content_cf`. This is the most important search input.
+### 15.4 ParsedContent
 
 ```json
 {
-  "title": "Example Page Title",
-  "meta_description": "Short page description",
-  "clean_text": "Visible page text after basic tag removal",
+  "title": "Example Title",
+  "meta_description": "Short description",
+  "clean_text": "Visible text...",
   "token_count": 350
 }
 ```
 
-Current parser behavior:
+This is the main search input.
 
-- Extracts `<title>...</title>`.
-- Extracts `<meta name="description" content="...">`.
-- Removes `<script>` and `<style>` blocks.
-- Removes HTML tags.
-- Normalizes whitespace.
-- Counts tokens approximately using whitespace count plus one.
-
-Search engine use:
-
-- Index `title` with high weight.
-- Index `meta_description` with medium weight.
-- Index `clean_text` as the main body.
-- Use `token_count` to suppress thin pages or normalize ranking.
-
-Recommended weighting for a simple lexical search:
+Recommended search weights:
 
 ```text
-title: 4.0
-meta_description: 2.0
-clean_text/body: 1.0
-URL/domain match: 0.5 to 1.5
-freshness/quality boost: 0.1 to 1.0
+title: 4x or higher
+meta_description: 2x
+clean_text: 1x
+URL: small boost
 ```
 
-### LinkData
-
-Stored in `link_graph_cf`.
+### 15.5 LinkData
 
 ```json
 {
@@ -460,21 +751,12 @@ Stored in `link_graph_cf`.
 }
 ```
 
-Current behavior:
+Current limitation:
 
-- `outbound_links_count` is populated from extracted links.
-- `inbound_links_count` is currently not fully computed.
-- `pagerank_score` is currently a placeholder.
+- Actual edges are not stored.
+- Inbound count and PageRank are placeholders unless computed later.
 
-Search engine use:
-
-- Use `outbound_links_count` carefully as a weak feature.
-- Build a separate link graph processor later if PageRank or authority ranking is needed.
-- To support real PageRank, persist actual edges, not only counts.
-
-### QualitySignals
-
-Stored in `quality_cf`.
+### 15.6 QualitySignals
 
 ```json
 {
@@ -486,22 +768,9 @@ Stored in `quality_cf`.
 }
 ```
 
-Current behavior:
+Use as secondary ranking features, not primary relevance.
 
-- `readability_score` is a simple approximation.
-- `spam_score` is basic: short content gets high spam score.
-- `quality_score = (1.0 - spam_score) * readability_score`.
-- `update_frequency` is a placeholder.
-
-Search engine use:
-
-- Use as secondary ranking boosts, not the main ranker.
-- Consider excluding pages with high spam score or very low quality score.
-- Improve these calculations in a later indexing pipeline.
-
-### Presentation
-
-Stored in `presentation_cf`. This is useful for search result rendering.
+### 15.7 Presentation
 
 ```json
 {
@@ -513,22 +782,9 @@ Stored in `presentation_cf`. This is useful for search result rendering.
 }
 ```
 
-Current behavior:
+Current API can generate query-aware snippets using `SnippetGenerator`, so static snippet is a fallback/presentation source.
 
-- `snippet` is the first part of clean text, max 160 characters by default.
-- `favicon_url` is extracted from `<link rel="icon"...>` or defaults to `/favicon.ico`.
-- `display_url` is set to the normalized URL.
-- `site_name` and `breadcrumb` are currently passed as empty strings.
-
-Search engine use:
-
-- Use this record to render title/snippet/display URL results.
-- For better result snippets, generate query-aware snippets in the search engine instead of always using this static snippet.
-- Resolve relative favicon URLs against the page origin before serving them.
-
-### ControlFlags
-
-Stored in `control_cf`.
+### 15.8 ControlFlags
 
 ```json
 {
@@ -540,300 +796,474 @@ Stored in `control_cf`.
 }
 ```
 
-Current behavior:
+Search API excludes `noindex == true`.
 
-- Detects `<meta name="robots" content="...noindex...">`.
-- Detects `<meta name="robots" content="...nofollow...">`.
-- Sets `index_status` to `SKIPPED_NOINDEX` if noindex is detected, otherwise `PENDING`.
+---
 
-Search engine use:
+## 16. Recrawl System
 
-- Do not serve documents with `noindex == true`.
-- Consider not following links from pages with `nofollow == true` in future crawler versions.
-- Treat `index_status` as a lifecycle field. A separate indexer can set statuses such as `INDEXED`, `SKIPPED_DUPLICATE`, `SKIPPED_NOINDEX`, or `FAILED_PARSE`.
+`RocksDBStore::recordCrawlResult` writes `recrawl:{url_hash}` state into the default CF.
 
-## Reading Data From Another Project
-
-The future search engine can consume RocksDB directly.
-
-Recommended read pattern:
-
-1. Iterate `domain_index_cf` keys starting with `d:`.
-2. Read the value, which is the `url_hash`.
-3. Fetch related records by `url_hash` from:
-   - `doc_core_cf`
-   - `fetch_meta_cf`
-   - `parsed_content_cf`
-   - `content_meta_cf`
-   - `quality_cf`
-   - `presentation_cf`
-   - `control_cf`
-4. Skip documents that should not be searchable.
-5. Build a search index from the accepted documents.
-
-Minimum fields needed for a usable search engine:
-
-- From `doc_core_cf`: `doc_id`, `url_hash`, `normalized_url`, `canonical_url`, `language_code`
-- From `fetch_meta_cf`: `fetch_status_code`, `last_fetched_time`, `crawl_depth`
-- From `parsed_content_cf`: `title`, `meta_description`, `clean_text`, `token_count`
-- From `quality_cf`: `quality_score`, `spam_score`
-- From `presentation_cf`: `snippet`, `favicon_url`, `display_url`
-- From `control_cf`: `noindex`, `index_status`
-
-Basic skip rules:
-
-```text
-skip if fetch_status_code != 200
-skip if noindex == true
-skip if clean_text is empty
-skip if token_count is too low for your product needs
-skip or canonicalize if duplicate/canonical_doc_id indicates a duplicate
-```
-
-## Suggested Search Engine Architecture
-
-A separate search project can be built in stages:
-
-1. RocksDB importer
-   - Reads VairagyaEngine column families.
-   - Joins records by `url_hash`.
-   - Emits one complete document object per page.
-
-2. Document cleaner
-   - Applies skip rules.
-   - Handles canonical URLs and duplicate clusters.
-   - Normalizes language, title, body, and display URL.
-
-3. Index builder
-   - Tokenizes `title`, `meta_description`, and `clean_text`.
-   - Builds an inverted index for keyword search.
-   - Optionally builds embeddings for semantic search.
-   - Stores document metadata separately from postings.
-
-4. Query processor
-   - Parses user query.
-   - Normalizes terms.
-   - Applies filters and customization options.
-   - Retrieves candidate documents.
-
-5. Ranker
-   - Scores candidates using text relevance and metadata boosts.
-   - Applies quality, freshness, duplicate, and domain diversity rules.
-
-6. Result renderer
-   - Produces title, URL, snippet, favicon, and metadata.
-   - Generates query-aware snippets from `clean_text`.
-
-## Search Relevance Inputs
-
-Useful ranking features from current crawler output:
-
-- Exact query term matches in `title`
-- Query term matches in `meta_description`
-- Query term matches in `clean_text`
-- Phrase match in title/body
-- URL/domain match
-- Freshness from `last_fetched_time`
-- Quality boost from `quality_score`
-- Spam penalty from `spam_score`
-- Thin-content penalty from `token_count`
-- Crawl-depth penalty or boost
-- Duplicate suppression using `content_hash` and `simhash`
-- Language match using `language_code`
-
-Simple ranking formula idea:
-
-```text
-score =
-  4.0 * title_bm25 +
-  2.0 * description_bm25 +
-  1.0 * body_bm25 +
-  0.5 * url_match_score +
-  0.5 * quality_score -
-  1.0 * spam_score +
-  freshness_boost -
-  duplicate_penalty
-```
-
-For a first version, BM25 over `title`, `meta_description`, and `clean_text` is enough.
-
-For a more advanced version, combine:
-
-- BM25 lexical retrieval
-- Semantic/vector retrieval
-- Query-aware snippet generation
-- Domain diversity
-- User personalization or custom filters
-
-## Customization Options For User Search
-
-The future search engine can expose filters and ranking customizations using crawler data.
-
-Possible filters:
-
-- Domain/site filter: use `normalized_url` or domain parsed from URL.
-- Language filter: use `DocCore.language_code`.
-- Freshness filter: use `FetchMeta.last_fetched_time`.
-- Content length filter: use `ParsedContent.token_count` or `FetchMeta.content_length_bytes`.
-- Quality filter: use `QualitySignals.quality_score`.
-- Spam-safe mode: exclude high `spam_score`.
-- Exact URL lookup: hash normalized URL with SHA-256 and read directly by `url_hash`.
-- Duplicate filtering: use `ContentMeta.content_hash`, `simhash`, `is_duplicate`, and `canonical_doc_id`.
-- Safe indexing filter: exclude `ControlFlags.noindex == true`.
-
-Possible ranking controls:
-
-- Prefer recent pages.
-- Prefer high quality pages.
-- Prefer a specific domain.
-- Prefer title matches.
-- Prefer longer/deeper content.
-- Prefer same-language results.
-- Collapse duplicate results.
-
-## Query Result Shape
-
-A good result object for the new search engine:
+Recrawl state shape:
 
 ```json
 {
-  "doc_id": 1,
-  "url_hash": "sha256(normalized_url)",
-  "title": "Example Page Title",
-  "url": "https://example.com/page",
-  "display_url": "example.com/page",
-  "snippet": "Query-aware snippet with highlighted terms...",
-  "favicon_url": "https://example.com/favicon.ico",
-  "language": "en",
-  "score": 12.34,
-  "last_fetched_time": 1710000000,
-  "quality_score": 0.81
+  "normalized_url": "https://example.com/page",
+  "last_crawl_ts": 1710000000,
+  "next_crawl_ts": 1710600000,
+  "failure_count": 0,
+  "change_rate": 0.0,
+  "last_content_hash": "...",
+  "last_http_status": 200,
+  "priority_score": 50
 }
 ```
 
-The crawler already provides most of these fields, but query-aware snippets and final relevance score should be generated by the search project.
-
-## Important Limitations In Current Crawler
-
-These are important when building the next project:
-
-- The crawler stores parsed records, not a ready-to-query inverted index.
-- Link graph storage only keeps counts, not actual edge lists.
-- PageRank is currently a placeholder.
-- Inbound link count is currently not fully computed.
-- The HTML parser is regex-based and basic.
-- Text extraction does not decode HTML entities or remove all boilerplate/navigation content.
-- Redirects are not followed.
-- SSL verification is disabled in the fetcher.
-- ETag and Last-Modified are stored in the schema but currently passed as empty strings.
-- `site_name` and `breadcrumb` are currently empty.
-- `quality_score`, `spam_score`, and `readability_score` are simple approximations.
-- `noindex` is detected, but the crawler still writes records; the search engine should enforce exclusion.
-- Pending URL resume stores only URLs, not full frontier priority/depth/referrer state.
-- The database schema is append/update by URL hash; there is no separate version history.
-
-## Recommended Improvements Before Large-Scale Search
-
-Crawler-side improvements:
-
-- Follow redirects and store final URL.
-- Store actual link edges: `source_url_hash -> target_url_hash`.
-- Compute inbound link counts and PageRank in a separate graph job.
-- Improve HTML parsing with a real parser.
-- Decode HTML entities.
-- Extract Open Graph fields, schema.org metadata, and site name.
-- Generate better canonical URL handling.
-- Store resolved favicon URLs.
-- Respect noindex before marking pages indexable.
-- Store robots decision accurately in `ControlFlags`.
-- Persist full frontier state for exact resume.
-- Add per-host rate limiting and crawl-delay enforcement.
-- Add content size limits to avoid very large responses.
-
-Search-side improvements:
-
-- Build a durable inverted index instead of scanning RocksDB at query time.
-- Use BM25 or another proven lexical ranker.
-- Add stemming/lemmatization depending on language.
-- Add stopword handling.
-- Add typo tolerance or fuzzy matching.
-- Add semantic embeddings if needed.
-- Generate query-aware snippets.
-- Collapse duplicates using content hash/simhash.
-- Add domain diversity.
-- Add freshness and quality boosts.
-
-## Minimal Importer Pseudocode
+Status handling:
 
 ```text
-open RocksDB with the same column families
-
-for each key/value in domain_index_cf where key starts with "d:":
-    url_hash = value
-
-    doc_core = json_get(doc_core_cf, url_hash)
-    fetch_meta = json_get(fetch_meta_cf, url_hash)
-    parsed = json_get(parsed_content_cf, url_hash)
-    content_meta = json_get(content_meta_cf, url_hash)
-    quality = json_get(quality_cf, url_hash)
-    presentation = json_get(presentation_cf, url_hash)
-    control = json_get(control_cf, url_hash)
-
-    if fetch_meta.fetch_status_code != 200:
-        continue
-    if control.noindex:
-        continue
-    if parsed.clean_text is empty:
-        continue
-
-    document = {
-        id: doc_core.doc_id,
-        url_hash: doc_core.url_hash,
-        url: doc_core.normalized_url,
-        canonical_url: doc_core.canonical_url,
-        language: doc_core.language_code,
-        title: parsed.title,
-        description: parsed.meta_description,
-        body: parsed.clean_text,
-        token_count: parsed.token_count,
-        snippet: presentation.snippet,
-        favicon_url: presentation.favicon_url,
-        quality_score: quality.quality_score,
-        spam_score: quality.spam_score,
-        last_fetched_time: fetch_meta.last_fetched_time,
-        simhash: content_meta.simhash
-    }
-
-    add document to search index
+retryable status: 0, 408, 429, >=500
+non-retryable: normal success and most 4xx
 ```
 
-## Practical First Version Plan For The Search Engine
+Failure backoff:
 
-For the first working version:
+```text
+1 hour << failure_count, capped between 1 hour and 14 days
+```
 
-1. Create a RocksDB reader that opens the same database path and column families.
-2. Convert each crawled page into a single document object.
-3. Skip failed, noindex, empty, duplicate, or low-quality documents.
-4. Build an inverted index over title, description, and body.
-5. Implement BM25 scoring with separate field weights.
-6. Return title, URL, snippet, favicon, score, and timestamp.
-7. Add filters for domain, language, freshness, and quality.
-8. Generate snippets based on query term positions in `clean_text`.
+Successful recrawl interval:
 
-This will use the crawler's existing data without requiring changes to VairagyaEngine.
+```text
+base around 1 week
+shorter for high change_rate
+shorter for higher priority_score
+clamped between 1 hour and 1 week
+```
 
-## Files To Study When Integrating
+`--crawl-database` behavior:
 
-- `VairagyaEngine/include/storage/db_schema.h`
-- `VairagyaEngine/include/storage/rocksdb_store.h`
-- `VairagyaEngine/src/storage/rocksdb_store.cpp`
-- `VairagyaEngine/src/crawler/engine.cpp`
-- `VairagyaEngine/src/pipeline/parsed_content_builder.cpp`
-- `VairagyaEngine/src/pipeline/presentation_builder.cpp`
-- `VairagyaEngine/src/pipeline/content_meta_builder.cpp`
-- `VairagyaEngine/src/pipeline/quality_signals_builder.cpp`
-- `VairagyaEngine/src/url/process.cpp`
+1. Call `getUrlsBatch(10000)` to select due recrawl candidates.
+2. If none are due, fallback to `getAllDocumentUrls(10000)`.
+3. Use selected URLs as seeds.
 
-## Key Takeaway
+---
 
-VairagyaEngine is best treated as the crawling and document-preparation layer. The future search engine should treat RocksDB as the source of crawled documents, join records by `url_hash`, enforce indexability rules, build its own optimized search index, and use the crawler's metadata as ranking, filtering, duplicate-detection, and result-presentation signals.
+## 17. Duplicate Cleanup
+
+`--remove-duplicates` calls `RocksDBStore::removeDuplicateURLs()`.
+
+It can remove:
+
+```text
+duplicate doc_core records
+duplicate domain_index entries
+duplicate pending URLs
+```
+
+It can also repair `next_doc_id`.
+
+Current duplicate cleanup is URL-record oriented. It is not full content duplicate clustering.
+
+---
+
+## 18. Search Index Loading
+
+`QueryEngine::load(store)` calls `IndexSearcher::load(store)`.
+
+`IndexSearcher` loads documents via:
+
+```cpp
+store.forEachSearchDocument(...)
+```
+
+It filters documents:
+
+```text
+skip if doc_id == 0
+skip if normalized_url empty
+skip if fetch_status_code != 200
+skip if clean_text empty
+skip if control_flags.noindex == true
+skip if content_meta.is_duplicate == true
+skip if quality_signals.spam_score > 0.8
+```
+
+Then it tokenizes separately:
+
+```text
+body: parsed_content.clean_text
+title: parsed_content.title
+description: parsed_content.meta_description
+url: doc_core.normalized_url
+```
+
+Posting fields:
+
+```cpp
+struct Posting {
+    uint64_t doc_id;
+    uint32_t term_frequency;
+    uint32_t title_frequency;
+    uint32_t description_frequency;
+    uint32_t url_frequency;
+};
+```
+
+Index structures:
+
+```text
+term_to_id_ : token -> term id
+id_to_term_ : term id -> token
+inverted_index_ : term id -> postings
+documents_ : doc id -> IndexedDocument
+```
+
+---
+
+## 19. Query Processing
+
+`QueryProcessor` does:
+
+- lowercase ASCII text
+- keeps alphanumeric plus meaningful symbols `+` and `#`
+- strips apostrophes and curly apostrophes
+- collapses punctuation/whitespace
+- tokenizes by spaces
+- removes stopwords
+- stems simple English suffixes: `ing`, `ies`, `es`, `s`
+- expands synonyms from `VairagyaEngine/config/synonyms.json`
+
+Stopwords include words like:
+
+```text
+a, an, and, are, as, at, be, best, by, for, from, how, in, is, it, of, on, or, that, the, this, to, was, what, when, where, which, with
+```
+
+Fuzzy fallback:
+
+- If retrieval returns no candidates, `QueryEngine` tries fuzzy expansion.
+- It uses edit distance up to 2.
+- It only considers vocabulary terms with the same first character.
+- It adds up to 3 fuzzy matches per missing token.
+
+---
+
+## 20. Ranking
+
+Ranking uses BM25 plus field boosts and metadata boosts.
+
+Important boosts:
+
+```text
+title term frequency: strong boost
+description term frequency: medium boost
+URL frequency: small boost
+query coverage: small boost
+exact title equals query: very strong boost
+title starts with query: strong boost
+title/body phrase hits: strong boost
+URL contains query: boost
+proximity in title/body: boost
+freshness: small boost
+authority multiplier: click_count + inbound_links + pagerank + quality_score
+spam penalty
+crawl depth penalty
+thin document penalty
+many outbound + zero inbound penalty
+```
+
+BM25 constants:
+
+```cpp
+k1 = 1.5
+b = 0.75
+```
+
+Click tracking:
+
+- API `/click?doc_id=...` updates in-memory click count.
+- It also increments `click:{doc_id}` in RocksDB.
+- Query cache is cleared after click update.
+
+---
+
+## 21. Snippet Generation
+
+`SnippetGenerator`:
+
+- Takes snippet source text.
+- Removes obvious JS/CSS/code-like noise with regex.
+- Normalizes text.
+- Finds first query token hit.
+- Returns text around the hit with configurable radius.
+- Falls back to beginning of text if no hit.
+
+`IndexSearcher::cappedSnippet()` chooses snippet source in this order:
+
+```text
+meta_description
+clean_text
+title
+normalized_url
+```
+
+Snippet source is capped to 4096 characters.
+
+---
+
+## 22. Current Known Limitations
+
+Crawler limitations:
+
+- `rate_limit.h` and `rate_limit.cpp` are empty in the uploaded snapshot.
+- `resolver.h` and `resolver.cpp` are empty.
+- No active per-host request delay.
+- No active 429 host pause queue.
+- `Retry-After` header is not parsed.
+- Redirects are terminal and not followed.
+- Sitemap URLs can be fetched and indexed as XML text instead of parsed/enqueued unless you add `SITEMAP_XML` handling.
+- `ResourceType` is not in the uploaded archive yet, but is part of the current intended design.
+- `isHtmlPageUrl()` is a simple extension blocklist and should be replaced with `ResourceType` logic.
+- robots `Sitemap:` lines are parsed but not automatically enqueued.
+- robots crawl-delay is not handled.
+- SSL verification is disabled.
+- Fetcher does not store ETag/Last-Modified response headers.
+- HTML parser is regex-based.
+- Raw HTML is not stored permanently.
+- Media metadata indexes do not exist yet.
+- Pending resume saves only URLs, not full `FrontierItem` metadata.
+- Host fairness is weak because host queues are selected by unordered map iteration.
+- Link graph stores counts, not actual edges.
+
+Search/API limitations:
+
+- Index is built in-memory at API startup.
+- No durable postings index yet.
+- `/search` supports only web results; no image/video/audio/document type tabs yet.
+- No domain/language/freshness filters exposed in API yet.
+- Ranking uses simple signals; PageRank/inbound links are not fully populated.
+- No distributed sharding/partitioning.
+
+---
+
+## 23. Recommended Immediate Fixes
+
+Priority order:
+
+### 1. ResourceType system
+
+Add:
+
+```cpp
+enum class ResourceType {
+    HTML_PAGE,
+    TEXT_DOCUMENT,
+    SITEMAP_XML,
+    PDF_DOCUMENT,
+    IMAGE,
+    VIDEO,
+    AUDIO,
+    STATIC_ASSET,
+    UNKNOWN
+};
+```
+
+Update `ProcessedURL`, `processURL`, `classifyResourceType`, and link enqueue logic.
+
+### 2. Sitemap handling
+
+For `SITEMAP_XML`:
+
+```text
+fetch body
+extract <loc> URLs
+process/enqueue discovered URLs
+do not index sitemap as normal page
+```
+
+### 3. 429 handling
+
+Add:
+
+```text
+FetchResult.retry_after_ms
+per-host pause state
+paused_hosts_429 min-heap
+exponential backoff
+special CLIENT_ERROR handling for 429
+```
+
+### 4. Redirect handling
+
+Add:
+
+```text
+FetchResult.redirect_url
+resolve Location against current URL
+max redirect count
+canonical/alias storage
+crawl final destination
+```
+
+### 5. Media metadata extraction
+
+During HTML parsing:
+
+```text
+extract <img src alt>
+extract og:image/twitter:image
+extract video/audio/iframe metadata
+store separate media records
+```
+
+### 6. API type filters
+
+Add:
+
+```text
+/search?q=...&type=web
+/search?q=...&type=images
+/search?q=...&type=videos
+/search?q=...&type=audio
+/search?q=...&type=documents
+```
+
+---
+
+## 24. Recommended Commands
+
+For one domain, avoid high thread counts:
+
+```bash
+VairagyaEngine.exe --mode crawler -d https://cplusplus.com/ -db vengine_tech_main -sd -cl -t 1
+```
+
+For sitemap seed after sitemap handling is implemented:
+
+```bash
+VairagyaEngine.exe --mode crawler -d https://www.netacad.com/sitemap.xml -db vengine_tech_main -sd -cl -t 1
+```
+
+Resume:
+
+```bash
+VairagyaEngine.exe --mode crawler --resume-db -db vengine_tech_main -sd -cl -t 1
+```
+
+Start API:
+
+```bash
+VairagyaEngine.exe --mode api -db vengine_tech_main --port 8080
+```
+
+Query:
+
+```bash
+curl "http://127.0.0.1:8080/search?q=c%2B%2B%20vector&page=1&limit=10"
+```
+
+Health:
+
+```bash
+curl "http://127.0.0.1:8080/health"
+```
+
+Click:
+
+```bash
+curl "http://127.0.0.1:8080/click?doc_id=123"
+```
+
+
+## 25. Important Design Rules Going Forward
+
+### Rule 1: Priority is ranking for crawl order, not validity
+
+```text
+priority 0 = lowest priority
+not automatically invalid
+```
+
+Validity should depend on:
+
+```text
+URLStatus
+Crawlability
+ResourceType
+robots decision
+same-domain policy
+```
+
+### Rule 2: Do not download media bodies in main crawler
+
+```text
+Image/video/audio search should use metadata extracted from HTML.
+```
+
+### Rule 3: Do not index sitemaps as pages
+
+```text
+sitemap.xml is a URL discovery file, not a search result.
+```
+
+### Rule 4: Do not handle 429 by rotating DNS resolvers
+
+```text
+429 should pause the host and obey Retry-After/backoff.
+```
+
+### Rule 5: Do not move every URL on 429
+
+```text
+Keep per-host queue.
+Pause host.
+Wake host later.
+```
+
+### Rule 6: Canonicalize known duplicate URL families
+
+Example RFC Editor:
+
+```text
+/rfc/rfc1264.html
+/refs/ref1264.txt
+/info/rfc1264/
+/rfc/rfc1264.txt
+```
+
+should collapse to one canonical search document, probably:
+
+```text
+https://www.rfc-editor.org/rfc/rfc1264.txt
+```
+
+---
+
+## 26. Current Best Mental Model
+
+VairagyaEngine now has three layers:
+
+```text
+Crawler Layer
+  fetches URLs, respects robots, parses content, stores records
+
+Storage Layer
+  RocksDB document metadata, content, recrawl state, pending URLs, click counts
+
+Search/API Layer
+  loads documents, builds in-memory inverted index, ranks results, serves API
+```
+
+The next major engineering work should be:
+
+```text
+1. Resource-type aware crawler: Implemented at URL intake level.
+   Remaining: ensure every frontier insertion path uses processURL(), including extracted links, redirects, sitemap URLs, and resume URLs.
+2. sitemap parser
+3. 429 host backoff
+4. redirect following
+5. media metadata schema
+6. API result-type tabs
+7. persistent inverted index
+```
