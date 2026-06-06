@@ -20,6 +20,20 @@ enum class SchemeType {
     NONE
 };
 
+enum class ResourceType {
+    HTML,
+    IMAGE,
+    AUDIO,
+    VIDEO,
+    DOCUMENT,
+    STATIC_ASSET,
+    OTHER,
+    TEXT_DOCUMENT,
+    PDF_DOCUMENT,
+    SITEMAP_XML,
+    UNKNOWN
+};
+
 
 enum class Crawlability {
 	CRAWLABLE,
@@ -38,4 +52,8 @@ SchemeType extractScheme(const string& url);
 Crawlability assessCrawlability(SchemeType& scheme);
 
 URLStatus analyzeURL(string url, string* normalized = nullptr);
+
+ResourceType classifyResourceType(const string& url);
+
+uint16_t priorityScore(const string& url);
 #endif // VALIDATE_H
