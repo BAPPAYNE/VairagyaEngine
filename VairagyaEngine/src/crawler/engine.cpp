@@ -395,6 +395,7 @@ namespace crawler {
 
 	}
 
+	// Worker loop that continuously processes URLs until shutdown
 	void Engine::workerLoop(size_t worker_id) {
 		while (g_running.load() && running.load()) {
 			auto itemOpt = frontier.popWait(g_running);
@@ -402,19 +403,32 @@ namespace crawler {
 				break;
 			}
 
+			struct WorkCompletionGuard {
+				Frontier& frontier;
+				~WorkCompletionGuard() {
+					frontier.completeWork();
+				}
+			} completion_guard{ frontier };
+
 			try {
 				processItem(*itemOpt);
 			}
 			catch (const exception& err) {
-				cerr << "[ERROR] Worker " << worker_id << " crashed while processing URL: " << err.what() << "\n";
+				lock_guard<mutex> io_lock(g_io_mtx);
+				cerr << "[ERROR] Worker " << worker_id
+					<< " failed while processing " << itemOpt->normalized_url
+					<< ": " << err.what() << "\n";
 			}
 			catch (...) {
-				cerr << "[ERROR] Worker " << worker_id << " crashed while processing URL with an unknown exception.\n";
+				lock_guard<mutex> io_lock(g_io_mtx);
+				cerr << "[ERROR] Worker " << worker_id
+					<< " failed while processing " << itemOpt->normalized_url
+					<< " with an unknown exception.\n";
 			}
-			frontier.completeWork();
 		}
 	}
 
+	// Starts the crawling engine with specified number of worker threads
 	void Engine::run(size_t worker_count) {
 		if (worker_count == 0) {
 			worker_count = 1;
@@ -488,6 +502,11 @@ namespace crawler {
 
 };
 
+static bool shouldFetchBody(ResourceType type) {
+	return type == ResourceType::HTML ||
+		type == ResourceType::TEXT_DOCUMENT;
+}
+
 void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store, size_t worker_count) {
 	Engine engine(crawl_links, db_store);
 
@@ -497,16 +516,47 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 		if (db_store) {
 			db_store->savePendingURLs(engine.getPendingURLs());
 		}
-		};
+	};
 
 	// Seed
-	int size_initialURLS = initialURLs.size();
-	for (int i = 0; i < size_initialURLS; i++) {
-		auto seed = processURL(initialURLs[i]);
-		if (seed.status == URLStatus::ACCEPTED_URL) {
-			engine.addURL(seed.normalized, 0, "SEED");
+	int acceptedSeeds = 0;
+	int skippedSeeds = 0;
+	size_t skippedInvalid = 0;
+	size_t skippedNonCrawlable = 0;
+	size_t skippedResource = 0;
+
+	// Seed URLs
+	for (const auto& rawUrl : initialURLs) {
+		ProcessedURL seed = processURL(rawUrl);
+
+		if (seed.status != URLStatus::ACCEPTED_URL) {
+			skippedInvalid++;
+			continue;
 		}
+
+		if (seed.crawlability != Crawlability::CRAWLABLE) {
+			skippedNonCrawlable++;
+			continue;
+		}
+
+		if (!shouldFetchBody(seed.resource_type)) {
+			skippedResource++;
+			continue;
+		}
+
+		// Important:
+		// Do NOT skip priority 0.
+		// Priority 0 means lowest priority, not rejected.
+		engine.addURL(seed.normalized, 0, "SEED");
+
+		acceptedSeeds++;
 	}
+
+	cout << "[INFO] Accepted seed URLs: " << acceptedSeeds << "\n";
+	cout << "[INFO] Skipped invalid/disallowed seeds: " << skippedInvalid << "\n";
+	cout << "[INFO] Skipped non-crawlable seeds: " << skippedNonCrawlable << "\n";
+	cout << "[INFO] Skipped unsupported resource seeds: " << skippedResource << "\n";
+	
 	saveCheckpoint();
 
 	cout << "[INFO] Starting " << worker_count << " crawler worker thread(s).\n";

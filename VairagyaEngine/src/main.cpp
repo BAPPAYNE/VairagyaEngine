@@ -364,8 +364,11 @@ int main(int argc, char* argv[])
         cout << "[INFO] Resuming " << seedUrls.size() << " pending URLs from DB." << endl;
     }
     else if (program.get<bool>("--crawl-database")) {
-        // Load all URLs from DB (implement db->getAllUrls() as needed)
-        seedUrls = db->getUrlsBatch(100); // Example batch size
+        seedUrls = db->getUrlsBatch(10000);
+        if (seedUrls.empty()) {
+            cout << "[INFO] No due recrawl URLs found. Falling back to stored document URLs." << endl;
+            seedUrls = db->getAllDocumentUrls(10000);
+        }
         if (seedUrls.empty()) {
             cerr << "[ERROR] No URLs found in DB to crawl." << endl;
             return 1;
