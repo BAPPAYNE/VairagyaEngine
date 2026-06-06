@@ -34,7 +34,7 @@ namespace crawler {
 		return url.substr(pos, end - pos);
 	}
 
-	void Frontier::push(const string& inputURL, int depth, const string& referrer) {
+	void Frontier::push(const string& inputURL, uint8_t depth, const string& referrer) {
 
 		// 1. Validate + normalize
 		ProcessedURL pURL = processURL(inputURL);

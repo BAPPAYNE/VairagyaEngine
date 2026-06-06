@@ -40,9 +40,9 @@ namespace crawler {
 
 	struct FrontierItem {
 		string normalized_url;
-		int priority;
+		uint16_t priority;
 		uint8_t  retry_count;
-		int depth;
+		uint8_t depth;
 		string referrer_url;
 	};
 
@@ -59,7 +59,7 @@ namespace crawler {
 		void markFailed(const string& url, uint16_t http_status);
 		void markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_status);
 		void markDisallowed(const string& url);
-		void push(const string& url, int depth = 0, const string& referrer = "");
+		void push(const string& url, uint8_t depth = 0, const string& referrer = "");
 		optional<FrontierItem> pop();
 		optional<FrontierItem> popWait(const atomic<bool>& running_flag);
 		bool empty() const;
