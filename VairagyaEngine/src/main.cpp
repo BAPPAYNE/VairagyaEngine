@@ -398,7 +398,12 @@ int main(int argc, char* argv[])
     displayCrawlerInfo(seedUrls);
 
     int requested_threads = max(1, program.get<int>("--threads"));
-    crawler::runCrawler(seedUrls, db, static_cast<size_t>(requested_threads));
+    crawler::runCrawler(
+        seedUrls,
+        db,
+        static_cast<size_t>(requested_threads),
+        program.get<bool>("--resume-db")
+    );
 
     cout << "[EXIT] Crawler stopped cleanly\n";
     return 0;

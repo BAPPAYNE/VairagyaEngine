@@ -313,25 +313,9 @@ namespace storage {
         auto it = handles_.find(rocksdb::kDefaultColumnFamilyName);
         if (it == handles_.end()) return;
 
-        vector<string> existing_pending_keys;
-        {
-            unique_ptr<rocksdb::Iterator> pending_it(
-                db_->NewIterator(rocksdb::ReadOptions(), it->second)
-            );
-            for (pending_it->Seek(PENDING_URL_PREFIX); pending_it->Valid(); pending_it->Next()) {
-                string key = pending_it->key().ToString();
-                if (key.rfind(PENDING_URL_PREFIX, 0) != 0) break;
-                existing_pending_keys.push_back(key);
-            }
-        }
-
         rocksdb::WriteOptions write_options;
-        for (const auto& key : existing_pending_keys) {
-            db_->Delete(write_options, it->second, key);
-        }
-
         // Remove the old single-JSON checkpoint so stale static/resource URLs
-        // cannot reappear after the per-URL pending set has been cleaned.
+        // cannot reappear after the per-URL pending set is used.
         db_->Delete(write_options, it->second, PENDING_URLS_KEY);
 
         unordered_set<string> seen;

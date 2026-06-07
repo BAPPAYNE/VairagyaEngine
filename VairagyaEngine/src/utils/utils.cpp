@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <cstdint>   // uint32_t etc. (MSVC pulls this in transitively; GCC/Clang do not)
+#include <cctype>
 #include <string>
 
 using namespace std;
@@ -24,6 +25,21 @@ vector<string> fetchLinesFromFile(const string& path) {
     string line;
     if (file.is_open()) {
         while (getline(file, line)) {
+            if (!line.empty() && static_cast<unsigned char>(line.front()) == 0xEF) {
+                if (line.size() >= 3 &&
+                    static_cast<unsigned char>(line[1]) == 0xBB &&
+                    static_cast<unsigned char>(line[2]) == 0xBF) {
+                    line.erase(0, 3);
+                }
+            }
+
+            line.erase(line.begin(), find_if(line.begin(), line.end(), [](unsigned char c) {
+                return !isspace(c);
+            }));
+            line.erase(find_if(line.rbegin(), line.rend(), [](unsigned char c) {
+                return !isspace(c);
+            }).base(), line.end());
+
             if (!line.empty()) {
                 res.push_back(line);
             }

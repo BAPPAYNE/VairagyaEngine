@@ -520,7 +520,7 @@ static bool shouldFetchBody(ResourceType type) {
 		type == ResourceType::TEXT_DOCUMENT;
 }
 
-void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store, size_t worker_count) {
+void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store, size_t worker_count, bool cleanup_skipped_pending) {
 	Engine engine(crawl_links, db_store);
 
 	log_utils::init_output_streams(json_output_path, txt_output_path);
@@ -540,7 +540,7 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 	size_t skippedPendingCleared = 0;
 
 	auto clearSkippedPending = [&](const string& rawUrl, const ProcessedURL& seed) {
-		if (!db_store) {
+		if (!cleanup_skipped_pending || !db_store) {
 			return;
 		}
 
