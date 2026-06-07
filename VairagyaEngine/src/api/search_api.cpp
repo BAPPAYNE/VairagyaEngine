@@ -150,7 +150,7 @@ namespace api {
         }
     }
 
-    void runSearchApi(shared_ptr<storage::RocksDBStore> &db_store, uint16_t port) {
+    void runSearchApi(shared_ptr<storage::RocksDBStore> &db_store, uint16_t& port) {
         if (!db_store) {
             cerr << "[ERROR] Cannot start API without an open database.\n";
             return;

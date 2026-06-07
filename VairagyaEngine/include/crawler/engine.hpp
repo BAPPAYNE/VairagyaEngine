@@ -34,7 +34,7 @@ namespace crawler {
 		bool shouldContinue() const;
 		void shutdown();
 
-		void markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code);
+		bool markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code);
 		void markFailed(const string& url, uint16_t http_code);
 		void markFetched(const string& url, uint16_t http_code);
 		void markDisallowed(const string& url);
@@ -56,7 +56,7 @@ namespace crawler {
 		void workerLoop(size_t worker_id);
 	};
 
-	void runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store = nullptr, size_t worker_count = 1);
+	void runCrawler(const vector<string>& initialURLs, shared_ptr<storage::RocksDBStore> db_store = nullptr, size_t worker_count = 1, bool cleanup_skipped_pending = false);
 };
 
 #endif // ENGINE_H

@@ -56,6 +56,7 @@ namespace storage {
         void savePendingURLs(const vector<string>& urls);
         vector<string> loadPendingURLs();
         vector<string> getUrlsBatch(const uint64_t limit = 10000);
+        vector<string> getAllDocumentUrls(const uint64_t limit = 10000);
         void recordCrawlResult(
             const string& url_hash,
             const string& normalized_url,
@@ -68,6 +69,8 @@ namespace storage {
         uint64_t incrementClickCount(uint64_t doc_id);
         vector<SearchDocumentRecord> loadSearchDocuments();
         void forEachSearchDocument(const function<void(SearchDocumentRecord&&)>& visitor);
+        void markPendingURL(const string& url);
+        void clearPendingURL(const string& url);
 
     private:
         rocksdb::DB* db_ = nullptr;

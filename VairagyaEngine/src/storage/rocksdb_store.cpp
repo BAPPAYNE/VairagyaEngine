@@ -1,5 +1,6 @@
 #include "storage/rocksdb_store.h"
 #include "storage/db_schema.h"
+#include "utils/hash.h"
 
 #include <iostream>
 #include <vector>
@@ -274,27 +275,91 @@ namespace storage {
 
     // Use a dedicated key for pending URLs
     const string PENDING_URLS_KEY = "__pending_urls__";
+    const string PENDING_URL_PREFIX = "pending_url:" ;
+
+    void RocksDBStore::markPendingURL(const string& url) {
+        lock_guard<mutex> lock(mutex_) ;
+        if (!db_ || url.empty()) return ;
+
+        auto it = handles_.find(rocksdb::kDefaultColumnFamilyName);
+
+        if (it == handles_.end()) return ;
+        db_->Put(
+            rocksdb::WriteOptions(),
+            it->second,
+            PENDING_URL_PREFIX + sha256(url),
+            url
+        );
+    }
+
+    void RocksDBStore::clearPendingURL(const string& url) {
+        lock_guard<mutex> lock(mutex_) ;
+        if (!db_ || url.empty()) return ;
+
+        auto it = handles_.find(rocksdb::kDefaultColumnFamilyName) ;
+        if(it == handles_.end()) return ;
+
+        db_->Delete(
+            rocksdb::WriteOptions(),
+            it->second,
+            PENDING_URL_PREFIX + sha256(url)
+        );
+    }
 
     void RocksDBStore::savePendingURLs(const vector<string>& urls) {
         lock_guard<mutex> lock(mutex_);
         if (!db_) return;
-        string data = json(urls).dump();
+
+        auto it = handles_.find(rocksdb::kDefaultColumnFamilyName);
+        if (it == handles_.end()) return;
+
         rocksdb::WriteOptions write_options;
-        write_options.sync = true;
-        db_->Put(write_options, handles_[rocksdb::kDefaultColumnFamilyName], PENDING_URLS_KEY, data);
+        // Remove the old single-JSON checkpoint so stale static/resource URLs
+        // cannot reappear after the per-URL pending set is used.
+        db_->Delete(write_options, it->second, PENDING_URLS_KEY);
+
+        unordered_set<string> seen;
+        for (const auto& url : urls) {
+            if (!url.empty() && seen.insert(url).second) {
+                db_->Put(write_options, it->second, PENDING_URL_PREFIX + sha256(url), url);
+            }
+        }
     }
 
     vector<string> RocksDBStore::loadPendingURLs() {
         lock_guard<mutex> lock(mutex_);
         vector<string> urls;
         if (!db_) return urls;
+        auto it_handle = handles_.find(rocksdb::kDefaultColumnFamilyName);
+        if (it_handle == handles_.end()) return urls;
+
+        unique_ptr<rocksdb::Iterator> it(
+            db_->NewIterator(rocksdb::ReadOptions(), it_handle->second)
+        );
+
+        for (it->Seek(PENDING_URL_PREFIX); it->Valid(); it->Next()) {
+            string key = it->key().ToString();
+            if (key.rfind(PENDING_URL_PREFIX, 0) != 0) break;
+            urls.push_back(it->value().ToString());
+        }
+
+        if (!urls.empty()) return urls;
+
+        // Backward compatibility for old single JSON key.
         string data;
-        auto status = db_->Get(rocksdb::ReadOptions(), handles_[rocksdb::kDefaultColumnFamilyName], PENDING_URLS_KEY, &data);
+        auto status = db_->Get(
+            rocksdb::ReadOptions(),
+            it_handle->second,
+            PENDING_URLS_KEY,
+            &data
+        );
+
         if (status.ok() && !data.empty()) {
             try {
                 urls = json::parse(data).get<vector<string>>();
             } catch (...) {}
         }
+
         return urls;
     }
 
@@ -438,6 +503,52 @@ namespace storage {
 
         cout << "[RECRAWL] Selected " << urls.size() << " due URL(s) from "
              << candidates.size() << " due candidate(s).\n";
+        return urls;
+    }
+
+    vector<string> RocksDBStore::getAllDocumentUrls(uint64_t limit) {
+        lock_guard<mutex> lock(mutex_);
+
+        vector<string> urls;
+        unordered_set<string> seen_urls;
+        if (!db_ || limit == 0) {
+            return urls;
+        }
+
+        auto doc_core_it = handles_.find(CF_DOC_CORE);
+        if (doc_core_it == handles_.end()) {
+            return urls;
+        }
+
+        rocksdb::ReadOptions ro;
+        ro.fill_cache = false;
+        ro.verify_checksums = false;
+        ro.readahead_size = 4 << 20;
+
+        unique_ptr<rocksdb::Iterator> it(db_->NewIterator(ro, doc_core_it->second));
+        for (it->SeekToFirst(); it->Valid() && urls.size() < limit; it->Next()) {
+            auto doc_json = json::parse(
+                it->value().data(),
+                it->value().data() + it->value().size(),
+                nullptr,
+                false
+            );
+            if (doc_json.is_discarded()) {
+                continue;
+            }
+
+            try {
+                DocCore doc = doc_json.get<DocCore>();
+                if (!doc.normalized_url.empty() && seen_urls.insert(doc.normalized_url).second) {
+                    urls.push_back(doc.normalized_url);
+                }
+            }
+            catch (...) {
+                // Skip malformed records so one bad document does not block DB crawling.
+            }
+        }
+
+        cout << "[DB] Loaded " << urls.size() << " stored document URL(s).\n";
         return urls;
     }
 

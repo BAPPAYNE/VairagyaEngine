@@ -1,16 +1,160 @@
 #include "pipeline/doc_core_builder.h"
 #include "utils/hash.h"
-#include <regex>
+
+#include <algorithm>
+#include <cctype>
 
 using namespace std;
 
-// file-local regex (case-insensitive):
-// - lookahead ensures rel contains the token "canonical" anywhere in the tag
-// - capture group 1 is the href value (works regardless of attribute order)
-static const regex canonical_regex(
-	R"(<link\b(?=[^>]*\brel\s*=\s*['"][^'"]*\bcanonical\b[^'"]*['"])[^>]*\bhref\s*=\s*['"]([^'"]+)['"][^>]*>)",
-	regex::icase
-);
+namespace {
+	constexpr size_t MAX_HEAD_BYTES = 128u * 1024;
+
+	string toLowerAscii(string value) {
+		transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+			return static_cast<char>(tolower(c));
+		});
+		return value;
+	}
+
+	void trimInPlace(string& value) {
+		const auto begin = find_if_not(value.begin(), value.end(), [](unsigned char c) {
+			return isspace(c);
+		});
+		const auto end = find_if_not(value.rbegin(), value.rend(), [](unsigned char c) {
+			return isspace(c);
+		}).base();
+
+		if (begin >= end) {
+			value.clear();
+			return;
+		}
+		value.assign(begin, end);
+	}
+
+	bool startsWithIgnoreCase(const string& text, size_t pos, const string& needle) {
+		if (pos + needle.size() > text.size()) {
+			return false;
+		}
+		for (size_t i = 0; i < needle.size(); ++i) {
+			if (tolower(static_cast<unsigned char>(text[pos + i])) !=
+				tolower(static_cast<unsigned char>(needle[i]))) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	size_t findIgnoreCase(const string& text, const string& needle, size_t pos = 0) {
+		if (needle.empty() || needle.size() > text.size()) {
+			return string::npos;
+		}
+		for (size_t i = pos; i + needle.size() <= text.size(); ++i) {
+			if (startsWithIgnoreCase(text, i, needle)) {
+				return i;
+			}
+		}
+		return string::npos;
+	}
+
+	string getAttributeValue(const string& tag, const string& attr_name) {
+		const string lower = toLowerAscii(tag);
+		const string attr = toLowerAscii(attr_name);
+		size_t pos = 0;
+
+		while ((pos = lower.find(attr, pos)) != string::npos) {
+			const bool left_ok = pos == 0 ||
+				!(isalnum(static_cast<unsigned char>(lower[pos - 1])) || lower[pos - 1] == '-' || lower[pos - 1] == '_');
+			const size_t after = pos + attr.size();
+			const bool right_ok = after >= lower.size() ||
+				!(isalnum(static_cast<unsigned char>(lower[after])) || lower[after] == '-' || lower[after] == '_');
+
+			if (!left_ok || !right_ok) {
+				pos = after;
+				continue;
+			}
+
+			size_t eq = lower.find('=', after);
+			if (eq == string::npos) {
+				return "";
+			}
+			for (size_t i = after; i < eq; ++i) {
+				if (!isspace(static_cast<unsigned char>(lower[i]))) {
+					pos = after;
+					eq = string::npos;
+					break;
+				}
+			}
+			if (eq == string::npos) {
+				continue;
+			}
+
+			size_t value_start = eq + 1;
+			while (value_start < tag.size() && isspace(static_cast<unsigned char>(tag[value_start]))) {
+				++value_start;
+			}
+			if (value_start >= tag.size()) {
+				return "";
+			}
+
+			char quote = 0;
+			if (tag[value_start] == '"' || tag[value_start] == '\'') {
+				quote = tag[value_start++];
+			}
+
+			size_t value_end = value_start;
+			if (quote) {
+				value_end = tag.find(quote, value_start);
+				if (value_end == string::npos) {
+					value_end = tag.size();
+				}
+			}
+			else {
+				while (value_end < tag.size() &&
+					!isspace(static_cast<unsigned char>(tag[value_end])) &&
+					tag[value_end] != '>') {
+					++value_end;
+				}
+			}
+
+			string value = tag.substr(value_start, value_end - value_start);
+			trimInPlace(value);
+			return value;
+		}
+
+		return "";
+	}
+
+	string tagName(const string& tag) {
+		size_t pos = tag.find('<');
+		if (pos == string::npos) {
+			return "";
+		}
+		++pos;
+		if (pos < tag.size() && tag[pos] == '/') {
+			++pos;
+		}
+		while (pos < tag.size() && isspace(static_cast<unsigned char>(tag[pos]))) {
+			++pos;
+		}
+
+		size_t end = pos;
+		while (end < tag.size() &&
+			(isalnum(static_cast<unsigned char>(tag[end])) || tag[end] == '-' || tag[end] == ':')) {
+			++end;
+		}
+
+		return toLowerAscii(tag.substr(pos, end - pos));
+	}
+
+	string firstTokenBeforeSemicolon(string value) {
+		const size_t semicolon = value.find(';');
+		if (semicolon != string::npos) {
+			value = value.substr(0, semicolon);
+		}
+		trimInPlace(value);
+		return value;
+	}
+}
 
 // Call this to fetch canonical_url, language_code, charset, content_type in form of DocCore.
 storage::DocCore DocCoreBuilder::build(const string& normalized_url, const string& html_header) {
@@ -36,54 +180,78 @@ string DocCoreBuilder::hashUrl(const string& normalized_url) {
 }
 
 string DocCoreBuilder::getCanonicalUrl(const string& html_header) {
-	// Use sregex_iterator which is the convenience typedef for string iterators.
-	sregex_iterator it(html_header.begin(), html_header.end(), canonical_regex);
-	sregex_iterator end;
-	for (; it != end; ++it) {
-		const smatch& m = *it;
-		// m[0] = full match, m[1] = href capture
-		if (m.size() >= 2) {
-			return m[1].str();
+	const string src = html_header.size() > MAX_HEAD_BYTES ? html_header.substr(0, MAX_HEAD_BYTES) : html_header;
+	size_t pos = 0;
+
+	while ((pos = findIgnoreCase(src, "<link", pos)) != string::npos) {
+		const size_t end = src.find('>', pos);
+		if (end == string::npos) {
+			break;
 		}
+		const string tag = src.substr(pos, end - pos + 1);
+		const string rel = toLowerAscii(getAttributeValue(tag, "rel"));
+		if (rel.find("canonical") != string::npos) {
+			return getAttributeValue(tag, "href");
+		}
+		pos = end + 1;
 	}
+
 	return string();
 }
 
 string DocCoreBuilder::getLanguageCode(const string& html_header) {
 	if (html_header.empty()) return "en";
-	string search_area = html_header.substr(0, 8192); // Search only head portion
-	static const regex lang_regex(
-		R"(<html\b[^>]*\blang\s*=\s*['"]([^'"]+)['"])",
-		regex::icase
-	);
-	smatch m;
-	if (regex_search(search_area, m, lang_regex) && m.size() >= 2) {
-		return m[1].str();
+	const string src = html_header.size() > MAX_HEAD_BYTES ? html_header.substr(0, MAX_HEAD_BYTES) : html_header;
+	const size_t pos = findIgnoreCase(src, "<html");
+	if (pos != string::npos) {
+		const size_t end = src.find('>', pos);
+		if (end != string::npos) {
+			const string lang = getAttributeValue(src.substr(pos, end - pos + 1), "lang");
+			if (!lang.empty()) {
+				return lang;
+			}
+		}
 	}
 	return "en"; // Default to English
 }
 
 string DocCoreBuilder::getCharset(const string& html_header) {
 	if (html_header.empty()) return "UTF-8";
-	string search_area = html_header.substr(0, 8192); // Search only head portion
-	
-	// 1. Try HTML5 <meta charset="utf-8">
-	static const regex charset_regex1(
-		R"(<meta\b[^>]*\bcharset\s*=\s*['"]?([^'"\s>]+)['"]?)",
-		regex::icase
-	);
-	smatch m;
-	if (regex_search(search_area, m, charset_regex1) && m.size() >= 2) {
-		return m[1].str();
-	}
+	const string src = html_header.size() > MAX_HEAD_BYTES ? html_header.substr(0, MAX_HEAD_BYTES) : html_header;
+	size_t pos = 0;
 
-	// 2. Try HTML4 <meta http-equiv="content-type" content="text/html; charset=utf-8">
-	static const regex charset_regex2(
-		R"(<meta\b[^>]*\bcontent\s*=\s*['"][^'"]*charset\s*=\s*([^'"\s;>]+)[^'"]*['"][^>]*>)",
-		regex::icase
-	);
-	if (regex_search(search_area, m, charset_regex2) && m.size() >= 2) {
-		return m[1].str();
+	while ((pos = findIgnoreCase(src, "<meta", pos)) != string::npos) {
+		const size_t end = src.find('>', pos);
+		if (end == string::npos) {
+			break;
+		}
+		const string tag = src.substr(pos, end - pos + 1);
+		const string direct_charset = getAttributeValue(tag, "charset");
+		if (!direct_charset.empty()) {
+			return direct_charset;
+		}
+
+		const string content = getAttributeValue(tag, "content");
+		const string lower_content = toLowerAscii(content);
+		const size_t charset_pos = lower_content.find("charset=");
+		if (charset_pos != string::npos) {
+			size_t value_start = charset_pos + 8;
+			while (value_start < content.size() && isspace(static_cast<unsigned char>(content[value_start]))) {
+				++value_start;
+			}
+			size_t value_end = value_start;
+			while (value_end < content.size() &&
+				!isspace(static_cast<unsigned char>(content[value_end])) &&
+				content[value_end] != ';') {
+				++value_end;
+			}
+			string charset = content.substr(value_start, value_end - value_start);
+			trimInPlace(charset);
+			if (!charset.empty()) {
+				return charset;
+			}
+		}
+		pos = end + 1;
 	}
 
 	return "UTF-8"; // Default
@@ -91,16 +259,22 @@ string DocCoreBuilder::getCharset(const string& html_header) {
 
 string DocCoreBuilder::getContentType(const string& html_header) {
 	if (html_header.empty()) return "text/html";
-	string search_area = html_header.substr(0, 8192); // Search only head portion
-	
-	// Look for <meta http-equiv="content-type" content="text/html; charset=utf-8">
-	static const regex content_type_regex(
-		R"(<meta\b(?=[^>]*\bhttp-equiv\s*=\s*['"]content-type['"])[^>]*\bcontent\s*=\s*['"]([^'"\s;>]+)[^'"]*['"])",
-		regex::icase
-	);
-	smatch m;
-	if (regex_search(search_area, m, content_type_regex) && m.size() >= 2) {
-		return m[1].str();
+	const string src = html_header.size() > MAX_HEAD_BYTES ? html_header.substr(0, MAX_HEAD_BYTES) : html_header;
+	size_t pos = 0;
+
+	while ((pos = findIgnoreCase(src, "<meta", pos)) != string::npos) {
+		const size_t end = src.find('>', pos);
+		if (end == string::npos) {
+			break;
+		}
+		const string tag = src.substr(pos, end - pos + 1);
+		if (tagName(tag) == "meta" && toLowerAscii(getAttributeValue(tag, "http-equiv")) == "content-type") {
+			const string content = firstTokenBeforeSemicolon(getAttributeValue(tag, "content"));
+			if (!content.empty()) {
+				return content;
+			}
+		}
+		pos = end + 1;
 	}
 
 	return "text/html"; // Default
