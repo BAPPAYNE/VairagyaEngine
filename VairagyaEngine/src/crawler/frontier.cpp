@@ -34,18 +34,18 @@ namespace crawler {
 		return url.substr(pos, end - pos);
 	}
 
-	void Frontier::push(const string& inputURL, uint8_t depth, const string& referrer) {
+	optional<string> Frontier::push(const string& inputURL, uint8_t depth, const string& referrer) {
 
 		// 1. Validate + normalize
 		ProcessedURL pURL = processURL(inputURL);
 		if (pURL.status != URLStatus::ACCEPTED_URL) {
 			cout << "[DROP] " << inputURL << " status=" << (int)pURL.status << "\n";
-			return;
+			return nullopt;
 		}
 
 		unique_lock<mutex> lock(mutex_);
 		if (!accepting_work_) {
-			return;
+			return nullopt;
 		}
 		crawl_stats.discovered++;
 		const string& url = pURL.normalized;
@@ -60,7 +60,7 @@ namespace crawler {
 				state.fetch_status == net::FetchStatus::FAILED ||
 				state.fetch_status == net::FetchStatus::ROBOTS_DISALLOWED ||
 				state.fetch_status == net::FetchStatus::UNKNOWN_ERROR) {
-				return;
+				return nullopt;
 			}
 		}
 
@@ -74,13 +74,13 @@ namespace crawler {
 
 		// 4. Retry limit reached → drop
 		if (state.retry_count >= MAX_RETRY_COUNT) {
-			return;
+			return nullopt;
 		}
 
 		// 5. Extract host
 		string host = extractHost(url);
 		if (host.empty()) {
-			return;
+			return nullopt;
 		}
 
 		// 6. Enqueue
@@ -93,6 +93,7 @@ namespace crawler {
 			});
 		lock.unlock();
 		cv_.notify_one();
+		return url;
 	}
 
 
@@ -205,8 +206,10 @@ namespace crawler {
 
 
 
-	void Frontier::markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code)
+	bool Frontier::markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code)
 	{
+		bool requeued = false;
+
 		unique_lock<mutex> lock(mutex_);
 		auto& state = urlStates[url];
 
@@ -229,12 +232,14 @@ namespace crawler {
 							0,
 							"RETRY"
 						});
+						requeued = true;
 					}
 				}
 			}
 		}
 		lock.unlock();
 		cv_.notify_one();
+		return requeued;
 	}
 	 
 	void Frontier::markDisallowed(const string& url) {

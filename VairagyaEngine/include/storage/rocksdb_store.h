@@ -69,6 +69,8 @@ namespace storage {
         uint64_t incrementClickCount(uint64_t doc_id);
         vector<SearchDocumentRecord> loadSearchDocuments();
         void forEachSearchDocument(const function<void(SearchDocumentRecord&&)>& visitor);
+        void markPendingURL(const string& url);
+        void clearPendingURL(const string& url);
 
     private:
         rocksdb::DB* db_ = nullptr;

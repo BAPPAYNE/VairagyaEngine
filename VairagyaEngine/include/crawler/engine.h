@@ -34,7 +34,7 @@ namespace crawler {
 		bool shouldContinue() const;
 		void shutdown();
 
-		void markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code);
+		bool markRetry(const string& url, net::FetchStatus fetch_status, uint16_t http_code);
 		void markFailed(const string& url, uint16_t http_code);
 		void markFetched(const string& url, uint16_t http_code);
 		void markDisallowed(const string& url);

@@ -45,7 +45,10 @@ namespace crawler {
 	{}
 
 	void Engine::addURL(const string& url, int depth, const string& referrer) {
-		frontier.push(url, depth, referrer);
+		auto accepted = frontier.push(url, depth, referrer);
+		if (accepted && db_store) {
+			db_store->markPendingURL(*accepted);
+		}
 	}
 
 	optional<FrontierItem> Engine::nextURL() {
@@ -478,18 +481,28 @@ namespace crawler {
 
 	void Engine::markFetched(const string& url, uint16_t http_status) {
 		frontier.markFetched(url, http_status);
+		if (db_store) db_store->clearPendingURL(url);
 	}
 
 	void Engine::markFailed(const string& url, uint16_t http_status) {
 		frontier.markFailed(url, http_status);
+		if (db_store) db_store->clearPendingURL(url);
 	}
 
-	void Engine::markRetry(const string& url, net::FetchStatus status, uint16_t http_status) {
-		frontier.markRetry(url, status, http_status);
+	bool Engine::markRetry(const string& url, net::FetchStatus status, uint16_t http_status) {
+		bool requeued = frontier.markRetry(url, status, http_status);
+
+		if (db_store) {
+			if (requeued) db_store->markPendingURL(url);
+			else db_store->clearPendingURL(url);
+		}
+
+		return requeued;
 	}
 
 	void Engine::markDisallowed(const string& url) {
 		frontier.markDisallowed(url);
+		if (db_store) db_store->clearPendingURL(url);
 	}
 
 	vector<string> Engine::get200URLs() const {
@@ -524,6 +537,19 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 	size_t skippedInvalid = 0;
 	size_t skippedNonCrawlable = 0;
 	size_t skippedResource = 0;
+	size_t skippedPendingCleared = 0;
+
+	auto clearSkippedPending = [&](const string& rawUrl, const ProcessedURL& seed) {
+		if (!db_store) {
+			return;
+		}
+
+		db_store->clearPendingURL(rawUrl);
+		if (!seed.normalized.empty() && seed.normalized != rawUrl) {
+			db_store->clearPendingURL(seed.normalized);
+		}
+		skippedPendingCleared++;
+	};
 
 	// Seed URLs
 	for (const auto& rawUrl : initialURLs) {
@@ -531,16 +557,19 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 
 		if (seed.status != URLStatus::ACCEPTED_URL) {
 			skippedInvalid++;
+			clearSkippedPending(rawUrl, seed);
 			continue;
 		}
 
 		if (seed.crawlability != Crawlability::CRAWLABLE) {
 			skippedNonCrawlable++;
+			clearSkippedPending(rawUrl, seed);
 			continue;
 		}
 
 		if (!shouldFetchBody(seed.resource_type)) {
 			skippedResource++;
+			clearSkippedPending(rawUrl, seed);
 			continue;
 		}
 
@@ -556,6 +585,9 @@ void crawler::runCrawler(const vector<string>& initialURLs, shared_ptr<storage::
 	cout << "[INFO] Skipped invalid/disallowed seeds: " << skippedInvalid << "\n";
 	cout << "[INFO] Skipped non-crawlable seeds: " << skippedNonCrawlable << "\n";
 	cout << "[INFO] Skipped unsupported resource seeds: " << skippedResource << "\n";
+	if (skippedPendingCleared > 0) {
+		cout << "[RESUME] Cleared " << skippedPendingCleared << " skipped pending URL(s).\n";
+	}
 	
 	saveCheckpoint();
 

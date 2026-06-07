@@ -49,10 +49,6 @@ inline shared_ptr<storage::RocksDBStore> initDatabase(const string& db_path) {
 #ifdef _WIN32
 BOOL WINAPI consoleHandler(DWORD signal) {
     if (signal == CTRL_C_EVENT || signal == CTRL_CLOSE_EVENT || signal == CTRL_BREAK_EVENT) {
-        bool expected = false;
-        if (g_shutdown_message_printed.compare_exchange_strong(expected, true)) {
-            cout << "\n[SHUTDOWN] Ctrl+C received\n";
-        }
         g_running.store(false);
         return TRUE;
     }

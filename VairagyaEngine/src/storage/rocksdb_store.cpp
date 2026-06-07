@@ -1,5 +1,6 @@
 #include "storage/rocksdb_store.h"
 #include "storage/db_schema.h"
+#include "utils/hash.h"
 
 #include <iostream>
 #include <vector>
@@ -274,27 +275,107 @@ namespace storage {
 
     // Use a dedicated key for pending URLs
     const string PENDING_URLS_KEY = "__pending_urls__";
+    const string PENDING_URL_PREFIX = "pending_url:" ;
+
+    void RocksDBStore::markPendingURL(const string& url) {
+        lock_guard<mutex> lock(mutex_) ;
+        if (!db_ || url.empty()) return ;
+
+        auto it = handles_.find(rocksdb::kDefaultColumnFamilyName);
+
+        if (it == handles_.end()) return ;
+        db_->Put(
+            rocksdb::WriteOptions(),
+            it->second,
+            PENDING_URL_PREFIX + sha256(url),
+            url
+        );
+    }
+
+    void RocksDBStore::clearPendingURL(const string& url) {
+        lock_guard<mutex> lock(mutex_) ;
+        if (!db_ || url.empty()) return ;
+
+        auto it = handles_.find(rocksdb::kDefaultColumnFamilyName) ;
+        if(it == handles_.end()) return ;
+
+        db_->Delete(
+            rocksdb::WriteOptions(),
+            it->second,
+            PENDING_URL_PREFIX + sha256(url)
+        );
+    }
 
     void RocksDBStore::savePendingURLs(const vector<string>& urls) {
         lock_guard<mutex> lock(mutex_);
         if (!db_) return;
-        string data = json(urls).dump();
+
+        auto it = handles_.find(rocksdb::kDefaultColumnFamilyName);
+        if (it == handles_.end()) return;
+
+        vector<string> existing_pending_keys;
+        {
+            unique_ptr<rocksdb::Iterator> pending_it(
+                db_->NewIterator(rocksdb::ReadOptions(), it->second)
+            );
+            for (pending_it->Seek(PENDING_URL_PREFIX); pending_it->Valid(); pending_it->Next()) {
+                string key = pending_it->key().ToString();
+                if (key.rfind(PENDING_URL_PREFIX, 0) != 0) break;
+                existing_pending_keys.push_back(key);
+            }
+        }
+
         rocksdb::WriteOptions write_options;
-        write_options.sync = true;
-        db_->Put(write_options, handles_[rocksdb::kDefaultColumnFamilyName], PENDING_URLS_KEY, data);
+        for (const auto& key : existing_pending_keys) {
+            db_->Delete(write_options, it->second, key);
+        }
+
+        // Remove the old single-JSON checkpoint so stale static/resource URLs
+        // cannot reappear after the per-URL pending set has been cleaned.
+        db_->Delete(write_options, it->second, PENDING_URLS_KEY);
+
+        unordered_set<string> seen;
+        for (const auto& url : urls) {
+            if (!url.empty() && seen.insert(url).second) {
+                db_->Put(write_options, it->second, PENDING_URL_PREFIX + sha256(url), url);
+            }
+        }
     }
 
     vector<string> RocksDBStore::loadPendingURLs() {
         lock_guard<mutex> lock(mutex_);
         vector<string> urls;
         if (!db_) return urls;
+        auto it_handle = handles_.find(rocksdb::kDefaultColumnFamilyName);
+        if (it_handle == handles_.end()) return urls;
+
+        unique_ptr<rocksdb::Iterator> it(
+            db_->NewIterator(rocksdb::ReadOptions(), it_handle->second)
+        );
+
+        for (it->Seek(PENDING_URL_PREFIX); it->Valid(); it->Next()) {
+            string key = it->key().ToString();
+            if (key.rfind(PENDING_URL_PREFIX, 0) != 0) break;
+            urls.push_back(it->value().ToString());
+        }
+
+        if (!urls.empty()) return urls;
+
+        // Backward compatibility for old single JSON key.
         string data;
-        auto status = db_->Get(rocksdb::ReadOptions(), handles_[rocksdb::kDefaultColumnFamilyName], PENDING_URLS_KEY, &data);
+        auto status = db_->Get(
+            rocksdb::ReadOptions(),
+            it_handle->second,
+            PENDING_URLS_KEY,
+            &data
+        );
+
         if (status.ok() && !data.empty()) {
             try {
                 urls = json::parse(data).get<vector<string>>();
             } catch (...) {}
         }
+
         return urls;
     }
 

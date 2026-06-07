@@ -1,6 +1,7 @@
 #ifndef VALIDATE_H
 #define VALIDATE_H
 
+#include <cstdint>
 #include <string>
 
 #include "url/status.h"
