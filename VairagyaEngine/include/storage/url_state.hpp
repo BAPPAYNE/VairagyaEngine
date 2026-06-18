@@ -1,7 +1,7 @@
 #ifndef URL_STATE_H
 #define URL_STATE_H
 
-#include "net/fetcher.h"
+#include "net/fetcher.hpp"
 
 #include <string>
 #include <cstdint>

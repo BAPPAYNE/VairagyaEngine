@@ -1,7 +1,7 @@
 #ifndef DOC_CORE_BUILDER
 #define DOC_CORE_BUILDER
 
-#include "storage/db_schema.h"
+#include "storage/db_schema.hpp"
 #include <string>
 
 using namespace std;

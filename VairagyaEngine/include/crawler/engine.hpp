@@ -7,12 +7,12 @@
 #include <mutex>
 #include <atomic>
 
-#include "crawler/frontier.h"
-#include "url/process.h"
-#include "crawler/scheduler.h"
-#include "host/robots_manager.h"
-#include "storage/rocksdb_store.h"
-#include "storage/memory_host_state_store.h"
+#include "crawler/frontier.hpp"
+#include "url/process.hpp"
+#include "crawler/scheduler.hpp"
+#include "host/robots_manager.hpp"
+#include "storage/rocksdb_store.hpp"
+#include "storage/memory_host_state_store.hpp"
 #include <memory>
 
 using namespace std;

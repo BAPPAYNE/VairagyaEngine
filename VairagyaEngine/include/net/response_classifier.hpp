@@ -1,8 +1,8 @@
 #ifndef RESPONSE_CLASSIFIER_H
 #define RESPONSE_CLASSIFIER_H
 
-#include "net/fetcher.h"
-#include "net/response_class.h"
+#include "net/fetcher.hpp"
+#include "net/response_class.hpp"
 
 namespace net {
 

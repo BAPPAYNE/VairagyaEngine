@@ -1,4 +1,4 @@
-#include "query/result_builder.h"
+#include "query/result_builder.hpp"
 
 #include <algorithm>
 #include <cctype>

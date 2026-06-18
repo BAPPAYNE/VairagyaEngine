@@ -1,4 +1,4 @@
-#include "query/query_engine.h"
+#include "query/query_engine.hpp"
 
 #include <algorithm>
 #include <limits>

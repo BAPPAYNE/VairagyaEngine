@@ -1,4 +1,4 @@
-#include "storage/memory_content_state_store.h"
+#include "storage/memory_content_state_store.hpp"
 
 using namespace std;
 

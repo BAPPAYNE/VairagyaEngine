@@ -1,7 +1,7 @@
 #ifndef QUERY_RANKER_H
 #define QUERY_RANKER_H
 
-#include "query/index_searcher.h"
+#include "query/index_searcher.hpp"
 
 #include <cstdint>
 #include <string>

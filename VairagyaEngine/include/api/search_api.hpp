@@ -1,7 +1,7 @@
 #ifndef SEARCH_API_H
 #define SEARCH_API_H
 
-#include "storage/rocksdb_store.h"
+#include "storage/rocksdb_store.hpp"
 
 #include <cstdint>
 #include <memory>

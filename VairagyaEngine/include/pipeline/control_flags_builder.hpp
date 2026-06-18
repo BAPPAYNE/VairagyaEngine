@@ -1,7 +1,7 @@
 #ifndef CONTROL_FLAGS_BUILDER_H
 #define CONTROL_FLAGS_BUILDER_H
 
-#include <storage/db_schema.h>
+#include <storage/db_schema.hpp>
 #include <string>
 
 using namespace std;

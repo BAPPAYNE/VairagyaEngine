@@ -1,7 +1,7 @@
 #ifndef URL_STATE_STORE_H
 #define URL_STATE_STORE_H
 
-#include "storage/url_state.h"
+#include "storage/url_state.hpp"
 
 #include <optional>
 #include <string>

@@ -1,7 +1,7 @@
 #ifndef CONTENT_STATE_STORE
 #define CONTENT_STATE_STORE
 
-#include "storage/content_state.h"
+#include "storage/content_state.hpp"
 
 #include <string>
 #include <cstdint>

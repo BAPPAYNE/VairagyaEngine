@@ -1,4 +1,4 @@
-#include "storage/memory_host_state_store.h"
+#include "storage/memory_host_state_store.hpp"
 
 #include <optional>
 #include <mutex>

@@ -1,4 +1,4 @@
-#include "pipeline/parsed_content_builder.h"
+#include "pipeline/parsed_content_builder.hpp"
 
 #include <algorithm>
 #include <cctype>

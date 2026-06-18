@@ -1,5 +1,5 @@
-#include "query/ranker.h"
-#include "query/query_processor.h"
+#include "query/ranker.hpp"
+#include "query/query_processor.hpp"
 
 
 #include <algorithm>

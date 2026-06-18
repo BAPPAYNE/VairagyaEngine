@@ -1,4 +1,4 @@
-#include "host/rate_limit.h"
+#include "host/rate_limit.hpp"
 
 #include <algorithm>
 

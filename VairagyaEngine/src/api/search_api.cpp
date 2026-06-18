@@ -1,6 +1,6 @@
-#include "api/search_api.h"
+#include "api/search_api.hpp"
 
-#include "query/query_engine.h"
+#include "query/query_engine.hpp"
 
 #include <crow.h>
 #include <nlohmann/json.hpp>

@@ -1,11 +1,11 @@
 #ifndef QUERY_ENGINE_H
 #define QUERY_ENGINE_H
 
-#include "query/index_searcher.h"
-#include "query/query_processor.h"
-#include "query/ranker.h"
-#include "query/result_builder.h"
-#include "storage/rocksdb_store.h"
+#include "query/index_searcher.hpp"
+#include "query/query_processor.hpp"
+#include "query/ranker.hpp"
+#include "query/result_builder.hpp"
+#include "storage/rocksdb_store.hpp"
 
 #include <list>
 #include <cstdint>

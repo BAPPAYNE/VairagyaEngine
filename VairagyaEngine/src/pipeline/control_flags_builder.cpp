@@ -1,4 +1,4 @@
-#include "pipeline/control_flags_builder.h"
+#include "pipeline/control_flags_builder.hpp"
 
 #include <algorithm>
 #include <cctype>

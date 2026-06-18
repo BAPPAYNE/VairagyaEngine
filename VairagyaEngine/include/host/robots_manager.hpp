@@ -1,7 +1,7 @@
 #ifndef ROBOTS_MANAGER
 #define ROBOTS_MANAGER
 
-#include "storage/host_state_store.h"
+#include "storage/host_state_store.hpp"
 
 #include <string>
 #include <cstdint>

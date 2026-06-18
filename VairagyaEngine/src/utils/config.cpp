@@ -1,4 +1,4 @@
-#include "utils/config.h"
+#include "utils/config.hpp"
 
 using namespace std;
 

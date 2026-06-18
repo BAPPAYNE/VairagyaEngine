@@ -1,4 +1,4 @@
-#include "net/response_classifier.h"
+#include "net/response_classifier.hpp"
 
 namespace net {
 	ResponseClass classify(const FetchResult& result) {

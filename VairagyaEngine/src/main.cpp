@@ -13,19 +13,19 @@
 #include <windows.h>
 #endif
 
-#include "url/normalize.h"
-#include "url/validate.h"
-#include "url/process.h"
-#include "crawler/engine.h"
-#include "utils/log.h"
-#include "net/fetcher.h"
-#include "utils/runtime.h"
+#include "url/normalize.hpp"
+#include "url/validate.hpp"
+#include "url/process.hpp"
+#include "crawler/engine.hpp"
+#include "utils/log.hpp"
+#include "net/fetcher.hpp"
+#include "utils/runtime.hpp"
 #include "utils/argparse.hpp"
-#include "utils/utils.h"
-#include "utils/config.h"
-#include "storage/rocksdb_store.h"
-#include "pipeline/doc_core_builder.h"
-#include "api/search_api.h"
+#include "utils/utils.hpp"
+#include "utils/config.hpp"
+#include "storage/rocksdb_store.hpp"
+#include "pipeline/doc_core_builder.hpp"
+#include "api/search_api.hpp"
 
 using namespace std;
 using namespace argparse;
@@ -341,7 +341,8 @@ int main(int argc, char* argv[])
             return 1;
         }
 
-        api::runSearchApi(db, static_cast<uint16_t>(requested_port));
+        uint16_t port = static_cast<uint16_t>(requested_port);
+        api::runSearchApi(db, port);            
         return 0;
     }
 

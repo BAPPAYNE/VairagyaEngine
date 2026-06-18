@@ -1,8 +1,8 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 
-#include "url/status.h"
-#include "url/validate.h"
+#include "url/status.hpp"
+#include "url/validate.hpp"
 
 #include <string>
 #include <cctype>
