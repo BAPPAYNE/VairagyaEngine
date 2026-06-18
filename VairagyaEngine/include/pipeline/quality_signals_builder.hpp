@@ -1,7 +1,7 @@
 #ifndef QUALITY_SIGNALS_BUILDER_H
 #define QUALITY_SIGNALS_BUILDER_H
 
-#include <storage/db_schema.h>
+#include <storage/db_schema.hpp>
 #include <string>
 
 using namespace std;

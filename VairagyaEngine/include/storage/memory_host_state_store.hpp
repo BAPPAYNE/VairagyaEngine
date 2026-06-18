@@ -1,7 +1,7 @@
 #ifndef MEMORY_HOST_STATE_STORE_H
 #define MEMORY_HOST_STATE_STORE_H
 
-#include "storage/host_state_store.h"
+#include "storage/host_state_store.hpp"
 
 #include <unordered_map>
 #include <mutex>

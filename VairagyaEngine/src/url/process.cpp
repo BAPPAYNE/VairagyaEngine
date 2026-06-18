@@ -1,6 +1,6 @@
-#include "url/process.h"
-#include "url/validate.h"
-#include "url/normalize.h"
+#include "url/process.hpp"
+#include "url/validate.hpp"
+#include "url/normalize.hpp"
 
 #include <boost/url.hpp>
 #include <iostream>

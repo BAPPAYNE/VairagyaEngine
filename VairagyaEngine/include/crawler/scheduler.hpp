@@ -4,7 +4,7 @@
 #include <optional>
 #include <string>
 
-#include "crawler/frontier.h"
+#include "crawler/frontier.hpp"
 
 namespace crawler {
 	class Scheduler {

@@ -1,4 +1,4 @@
-#include "query/index_searcher.h"
+#include "query/index_searcher.hpp"
 
 #include <algorithm>
 #include <tsl/robin_map.h>

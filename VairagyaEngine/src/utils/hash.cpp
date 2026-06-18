@@ -1,4 +1,4 @@
-#include "utils/hash.h"
+#include "utils/hash.hpp"
 
 #include <openssl/sha.h>
 #include <iomanip>

@@ -1,5 +1,5 @@
-#include "query/snippet_generator.h"
-#include "query/query_processor.h"
+#include "query/snippet_generator.hpp"
+#include "query/query_processor.hpp"
 
 #include <algorithm>
 #include <cctype>

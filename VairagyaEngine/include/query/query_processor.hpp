@@ -1,7 +1,7 @@
 #ifndef QUERY_PROCESSOR_H
 #define QUERY_PROCESSOR_H
 
-#include "query/query_types.h"
+#include "query/query_types.hpp"
 
 #include <string>
 #include <unordered_set>

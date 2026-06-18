@@ -1,7 +1,7 @@
 #ifndef MEMORY_CONTENT_STATE_STORE_H
 #define MEMORY_CONTENT_STATE_STORE_H
 
-#include "storage/content_state_store.h"
+#include "storage/content_state_store.hpp"
 #include <unordered_map>
 #include <mutex>
 #include <cstdint>

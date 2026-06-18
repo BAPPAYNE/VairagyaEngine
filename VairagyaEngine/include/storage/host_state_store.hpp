@@ -1,7 +1,7 @@
 #ifndef HOST_STATE_STORE_H
 #define HOST_STATE_STORE_H
 
-#include "storage/host_state.h"
+#include "storage/host_state.hpp"
 
 #include <cstdint>
 #include <string>

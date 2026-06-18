@@ -1,5 +1,5 @@
-#include "pipeline/doc_core_builder.h"
-#include "utils/hash.h"
+#include "pipeline/doc_core_builder.hpp"
+#include "utils/hash.hpp"
 
 #include <algorithm>
 #include <cctype>

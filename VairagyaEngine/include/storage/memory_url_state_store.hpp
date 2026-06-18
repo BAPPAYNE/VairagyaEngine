@@ -1,7 +1,7 @@
 #ifndef MEMORY_URL_STATE_STORE_H
 #define MEMORY_URL_STATE_STORE_H
 
-#include "storage/url_state_store.h"
+#include "storage/url_state_store.hpp"
 
 #include <unordered_map>
 #include <mutex>

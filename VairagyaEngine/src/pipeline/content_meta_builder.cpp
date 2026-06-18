@@ -1,5 +1,5 @@
-#include "pipeline/content_meta_builder.h"
-#include "utils/hash.h"
+#include "pipeline/content_meta_builder.hpp"
+#include "utils/hash.hpp"
 #include "simhash.h"
 #include <sstream>
 #include <vector>

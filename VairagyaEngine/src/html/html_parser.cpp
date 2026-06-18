@@ -1,5 +1,5 @@
-#include "html/html_parser.h"
-#include "url/process.h"
+#include "html/html_parser.hpp"
+#include "url/process.hpp"
 
 #include <algorithm>
 #include <cctype>

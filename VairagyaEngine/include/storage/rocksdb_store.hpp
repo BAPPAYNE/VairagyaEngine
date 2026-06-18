@@ -9,8 +9,8 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include "storage/kv_store.h"
-#include "storage/db_schema.h"
+#include "storage/kv_store.hpp"
+#include "storage/db_schema.hpp"
 #include <rocksdb/db.h>
 
 using namespace std;

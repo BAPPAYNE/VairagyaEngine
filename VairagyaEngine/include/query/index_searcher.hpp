@@ -89,8 +89,8 @@
 #ifndef INDEX_SEARCHER_H
 #define INDEX_SEARCHER_H
 
-#include "query/query_processor.h"
-#include "storage/rocksdb_store.h"
+#include "query/query_processor.hpp"
+#include "storage/rocksdb_store.hpp"
 
 #include <cstdint>
 #include <string>

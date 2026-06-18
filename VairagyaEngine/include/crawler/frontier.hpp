@@ -16,8 +16,8 @@
 #include <condition_variable>
 #include <mutex>
 
-#include "url/process.h"
-#include "storage/url_state.h"
+#include "url/process.hpp"
+#include "storage/url_state.hpp"
 
 using namespace std;
 

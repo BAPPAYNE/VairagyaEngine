@@ -1,4 +1,4 @@
-#include "pipeline/quality_signals_builder.h"
+#include "pipeline/quality_signals_builder.hpp"
 #include <cmath>
 
 using namespace storage;

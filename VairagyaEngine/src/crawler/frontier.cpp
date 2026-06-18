@@ -1,5 +1,5 @@
-#include "crawler/frontier.h"
-#include "url/process.h"
+#include "crawler/frontier.hpp"
+#include "url/process.hpp"
 
 #include <unordered_map>
 #include <unordered_set>

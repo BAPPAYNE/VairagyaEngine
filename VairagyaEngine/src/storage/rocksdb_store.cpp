@@ -1,6 +1,6 @@
-#include "storage/rocksdb_store.h"
-#include "storage/db_schema.h"
-#include "utils/hash.h"
+#include "storage/rocksdb_store.hpp"
+#include "storage/db_schema.hpp"
+#include "utils/hash.hpp"
 
 #include <iostream>
 #include <vector>

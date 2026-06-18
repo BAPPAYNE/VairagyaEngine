@@ -1,9 +1,9 @@
 #ifndef QUERY_RESULT_BUILDER_H
 #define QUERY_RESULT_BUILDER_H
 
-#include "query/index_searcher.h"
-#include "query/ranker.h"
-#include "query/snippet_generator.h"
+#include "query/index_searcher.hpp"
+#include "query/ranker.hpp"
+#include "query/snippet_generator.hpp"
 
 #include <cstdint>
 #include <vector>
