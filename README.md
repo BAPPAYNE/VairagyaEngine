@@ -75,7 +75,7 @@ Bundled in this repository:
 This repo already contains Windows CMake presets, but the preset file currently points to a machine-specific vcpkg toolchain path:
 
 ```text
-D:/library_openssl/vcpkg/scripts/buildsystems/vcpkg.cmake
+{vcpkg_path}/scripts/buildsystems/vcpkg.cmake
 ```
 
 If that path does not exist on your machine, update `CMakePresets.json` before building.
